@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="x-apple-disable-message-reformatting">
+  <!--[if mso]>
+  <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+  <![endif]-->
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background-color: #f1f5f9;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      -webkit-text-size-adjust: 100%;
+      -ms-text-size-adjust: 100%;
+    }
+    .wrapper {
+      width: 100%;
+      background-color: #f1f5f9;
+      padding: 32px 16px;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 16px;
+      overflow: hidden;
+      max-width: 580px;
+      margin: 0 auto;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.10);
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      padding: 36px 32px;
+      text-align: center;
+    }
+    .header-emoji { font-size: 40px; display: block; margin-bottom: 10px; }
+    .header h1 {
+      color: #ffffff;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      margin-bottom: 4px;
+    }
+    .header p { color: rgba(255,255,255,0.78); font-size: 13px; }
+
+    /* Approved badge */
+    .badge-row {
+      background: #ecfdf5;
+      padding: 16px 32px;
+      text-align: center;
+      border-bottom: 1px solid #d1fae5;
+    }
+    .badge {
+      display: inline-block;
+      background: #10b981;
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 6px 20px;
+      border-radius: 999px;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+    }
+
+    /* Body */
+    .body { padding: 36px 32px; }
+    .greeting {
+      font-size: 17px;
+      color: #1e293b;
+      margin-bottom: 14px;
+      font-weight: 500;
+    }
+    .greeting strong { color: #4f46e5; }
+    .message {
+      font-size: 15px;
+      color: #475569;
+      line-height: 1.75;
+      margin-bottom: 14px;
+    }
+    .highlight { color: #10b981; font-weight: 600; }
+
+    /* Info box */
+    .info-box {
+      background: #f8faff;
+      border: 1px solid #e0e7ff;
+      border-left: 4px solid #4f46e5;
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin: 24px 0;
+    }
+    .info-box p {
+      font-size: 14px;
+      color: #475569;
+      line-height: 1.6;
+      margin-bottom: 8px;
+    }
+    .info-box p:last-child { margin-bottom: 0; }
+    .info-box strong { color: #1e293b; }
+
+    /* CTA button */
+    .cta-wrap { text-align: center; margin: 28px 0 8px; }
+    .cta-btn {
+      display: inline-block;
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      color: #ffffff !important;
+      font-size: 15px;
+      font-weight: 700;
+      padding: 15px 36px;
+      border-radius: 10px;
+      text-decoration: none;
+      letter-spacing: 0.3px;
+    }
+
+    .note {
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.65;
+      margin-top: 24px;
+    }
+
+    /* Footer */
+    .footer {
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+      padding: 24px 32px;
+      text-align: center;
+    }
+    .footer-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: #475569;
+      margin-bottom: 4px;
+    }
+    .footer-note { font-size: 12px; color: #94a3b8; }
+
+    /* ── MOBILE ── */
+    @media only screen and (max-width: 480px) {
+      .wrapper { padding: 0; }
+      .card {
+        border-radius: 0;
+        box-shadow: none;
+      }
+      .header { padding: 28px 20px; }
+      .header-emoji { font-size: 34px; }
+      .header h1 { font-size: 19px; }
+      .badge-row { padding: 14px 20px; }
+      .body { padding: 28px 20px; }
+      .greeting { font-size: 16px; }
+      .message { font-size: 14px; }
+      .info-box { padding: 14px 16px; }
+      .cta-btn {
+        display: block;
+        padding: 16px 20px;
+        font-size: 15px;
+        border-radius: 10px;
+      }
+      .footer { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="card">
+
+      <!-- Header -->
+      <div class="header">
+        <span class="header-emoji">🏠</span>
+        <h1>जनगणना सर्वेक्षण</h1>
+        <p>Census Survey Portal</p>
+      </div>
+
+      <!-- Badge -->
+      <div class="badge-row">
+        <span class="badge">✅ Account Approved</span>
+      </div>
+
+      <!-- Body -->
+      <div class="body">
+        <p class="greeting">Dear <strong>{{to_name}}</strong>,</p>
+        <p class="message">
+          Great news! Your account on the <strong>Census Survey Portal (जनगणना सर्वेक्षण)</strong>
+          has been reviewed and <span class="highlight">approved</span> by the administrator.
+        </p>
+        <p class="message">
+          You can now sign in with your registered email and password to start
+          submitting census survey records.
+        </p>
+
+        <!-- Info box -->
+        <div class="info-box">
+          <p><strong>Email:</strong> {{to_email}}</p>
+          <p><strong>Portal:</strong> Census Survey Portal</p>
+          <p><strong>Access:</strong> Immediate — sign in now</p>
+        </div>
+
+        <!-- CTA -->
+        <div class="cta-wrap">
+          <a href="https://pbhil95.github.io/Census_2027/" class="cta-btn">Open Survey Portal →</a>
+        </div>
+
+        <p class="note">
+          If you did not register for this portal or believe this is a mistake,
+          please ignore this email or contact your administrator.
+        </p>
+      </div>
+
+      <!-- Footer -->
+      <div class="footer">
+        <p class="footer-name">Census Survey Administration</p>
+        <p class="footer-note">This is an automated message — please do not reply.</p>
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

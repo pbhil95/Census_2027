@@ -6,6 +6,12 @@ const SUPABASE_URL = 'https://dvmhgzsxdidrvztmfrcq.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR2bWhnenN4ZGlkcnZ6dG1mcmNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY1MTQ4MTAsImV4cCI6MjA5MjA5MDgxMH0.Z2CgTRQOEHS9GtQLcbW6bNjnGDYhCg-TwApRVu3IoLo';
 const ADMIN_PIN = '2027'; // Change this to your preferred PIN
 
+// ── EMAILJS CONFIG ──
+const EMAILJS_PUBLIC_KEY = 'U9zPnVXLtEzAkZ54k';
+const EMAILJS_SERVICE_ID = 'service_jnvTarikhet';
+const EMAILJS_TEMPLATE_ID = 'template_m072fcb';
+
+let emailjsReady = false;
 let db = null;
 let allSurveyors = [];
 let allSurveys = [];
@@ -14,6 +20,29 @@ try {
   db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 } catch (e) {
   console.error('Supabase init failed:', e);
+}
+
+// Initialize EmailJS after script loads
+function initEmailJS() {
+  if (typeof emailjs !== 'undefined') {
+    try {
+      emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
+      emailjsReady = true;
+      console.log('[EmailJS] Initialized successfully');
+    } catch (e) {
+      console.error('[EmailJS] Init failed:', e);
+    }
+  } else {
+    console.warn('[EmailJS] Library not loaded yet, retrying in 1s...');
+    setTimeout(initEmailJS, 1000);
+  }
+}
+
+// Start EmailJS init on load
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initEmailJS);
+} else {
+  initEmailJS();
 }
 
 // ── PIN ──
@@ -99,14 +128,14 @@ function renderSurveyors() {
           <div class="surveyor-email">${escapeHtml(p.email)}</div>
           <div class="surveyor-date">Registered: ${date}</div>
           <div class="send-email-wrap">
-            <input type="checkbox" id="email-${p.id}" ${isApproved ? '' : 'checked'}>
-            <label for="email-${p.id}">📧 Send approval email</label>
+            <input type="checkbox" id="email-chk-${p.id}" ${isApproved ? '' : 'checked'}>
+            <label for="email-chk-${p.id}">📧 Send approval email</label>
           </div>
         </div>
         <div class="surveyor-actions">
           ${isApproved
-            ? `<button class="action-btn btn-reject" onclick="setApproval('${p.id}', false, this)">❌ Revoke</button>`
-            : `<button class="action-btn btn-approve" onclick="setApproval('${p.id}', true, this)">✅ Approve</button>`
+            ? `<button class="action-btn btn-reject" onclick="setApproval('${p.id}', false, this, false)">❌ Revoke</button>`
+            : `<button class="action-btn btn-approve" onclick="setApproval('${p.id}', true, this, document.getElementById('email-chk-${p.id}').checked)">✅ Approve</button>`
           }
           <button class="action-btn btn-reset" onclick="resetPassword('${p.id}', this)">🔑 Reset Pwd</button>
         </div>
@@ -119,7 +148,7 @@ function renderSurveyors() {
 }
 
 // ── APPROVAL ──
-async function setApproval(id, approved, btn) {
+async function setApproval(id, approved, btn, sendEmail = true) {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-sm"></span>';
 
@@ -134,9 +163,33 @@ async function setApproval(id, approved, btn) {
     const p = allSurveyors.find(x => x.id === id);
     if (p) p.approved = approved;
 
+    // Send approval email
+    if (approved && sendEmail && p) {
+      if (emailjsReady && typeof emailjs !== 'undefined') {
+        try {
+          await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+            to_email: p.email,
+            to_name: p.name,
+            surveyor_email: p.email,
+            surveyor_name: p.name
+          });
+          showToast('📧 Approval email sent!');
+        } catch (emailErr) {
+          console.error('EmailJS send error:', emailErr);
+          showToast('⚠️ Approved, but email failed: ' + (emailErr.text || emailErr.message || 'Unknown error'));
+        }
+      } else {
+        console.warn('[EmailJS] Not ready — falling back to mailto');
+        // Fallback: open mailto
+        const subject = encodeURIComponent('✅ Your Census Survey Account is Approved');
+        const body = encodeURIComponent(`Dear ${p.name},\n\nYour account on the Census Survey Portal has been approved. You can now sign in and start submitting survey records.\n\nPortal: https://pbhil95.github.io/Census_2027/\n\nRegards,\nCensus Survey Administration`);
+        window.open(`mailto:${p.email}?subject=${subject}&body=${body}`, '_blank');
+      }
+    }
+
     renderSurveyors();
     updateStats();
-    showToast(approved ? '✅ Surveyor approved!' : '❌ Surveyor revoked.');
+    if (!approved) showToast('❌ Surveyor revoked.');
   } catch (e) {
     showToast('❌ Error: ' + e.message);
     btn.disabled = false;
