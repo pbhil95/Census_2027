@@ -6,6 +6,9 @@
 const SUPABASE_URL = 'https://dvmhgzsxdidrvztmfrcq.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR2bWhnenN4ZGlkcnZ6dG1mcmNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY1MTQ4MTAsImV4cCI6MjA5MjA5MDgxMH0.Z2CgTRQOEHS9GtQLcbW6bNjnGDYhCg-TwApRVu3IoLo';
 
+// Capture recovery hash BEFORE Supabase client consumes it
+const URL_HAS_RECOVERY = window.location.hash.includes('type=recovery');
+
 let db = null;
 let currentUser = null;
 let currentProfile = null;
@@ -74,6 +77,15 @@ async function initAuth() {
     }
   } catch (err) {
     console.error('initAuth error:', err.message);
+  }
+
+  // If this is a recovery link, force recovery mode so routeUser shows reset screen
+  if (URL_HAS_RECOVERY) {
+    recoveryMode = true;
+    // Clean the URL so refresh doesn't trigger recovery again
+    if (window.history.replaceState) {
+      window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+    }
   }
 
   routeUser();
@@ -213,10 +225,25 @@ function showScreen(key) {
 function switchAuthTab(type) {
   document.getElementById('tab-login').classList.toggle('active', type === 'login');
   document.getElementById('tab-register').classList.toggle('active', type === 'register');
-  document.getElementById('form-login').classList.toggle('hidden', type !== 'login');
-  document.getElementById('form-register').classList.toggle('hidden', type !== 'register');
+
+  const frmLogin = document.getElementById('form-login');
+  const frmReg = document.getElementById('form-register');
+  const frmForgot = document.getElementById('form-forgot');
+
+  if (frmLogin) frmLogin.classList.toggle('hidden', type !== 'login');
+  if (frmReg) frmReg.classList.toggle('hidden', type !== 'register');
+  if (frmForgot) frmForgot.classList.toggle('hidden', type !== 'forgot');
+
+  if (type === 'forgot') {
+    document.querySelectorAll('.auth-tab-btn').forEach(b => b.classList.remove('active'));
+  }
+
   document.getElementById('err-login').classList.add('hidden');
   document.getElementById('err-register').classList.add('hidden');
+  const errF = document.getElementById('err-forgot');
+  const succF = document.getElementById('succ-forgot');
+  if (errF) errF.classList.add('hidden');
+  if (succF) succF.classList.add('hidden');
 }
 
 // ── WIZARD ──
@@ -597,6 +624,36 @@ function setupEventListeners() {
 
     btn.disabled = false;
     btn.textContent = 'Sign In →';
+  });
+
+  // Forgot Password
+  document.getElementById('form-forgot')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('forgot-email').value.trim();
+    const btn = document.getElementById('btn-forgot');
+    const err = document.getElementById('err-forgot');
+    const succ = document.getElementById('succ-forgot');
+
+    err.classList.add('hidden');
+    succ.classList.add('hidden');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-sm"></span> Sending Link…';
+
+    try {
+      const redirectTo = window.location.origin + window.location.pathname;
+      const { error } = await db.auth.resetPasswordForEmail(email, { redirectTo });
+      if (error) throw error;
+
+      succ.textContent = 'Reset link sent! Check your email inbox (and spam folder).';
+      succ.classList.remove('hidden');
+      document.getElementById('forgot-email').value = '';
+    } catch (error) {
+      err.textContent = error.message;
+      err.classList.remove('hidden');
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Send Reset Link →';
   });
 
   // Register
