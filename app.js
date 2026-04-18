@@ -219,6 +219,15 @@ function showScreen(key) {
     if (ST[k] && k !== 'loading') ST[k].classList.add('hidden');
   });
   if (ST[key]) ST[key].classList.remove('hidden');
+
+  // Show the floating toggle only on screens that have NO app-header of their own.
+  // main / records / success already have a toggle in their header.
+  const authToggle = document.getElementById('auth-theme-toggle');
+  if (authToggle) {
+    const headerlessScreens = ['auth', 'wait', 'forceReset'];
+    authToggle.style.display = headerlessScreens.includes(key) ? '' : 'none';
+  }
+
   window.scrollTo(0, 0);
 }
 
