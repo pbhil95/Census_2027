@@ -254,6 +254,7 @@ function updateProgress() {
   document.getElementById('btn-prev').classList.toggle('hidden', currentStep === 1);
   document.getElementById('btn-next').classList.toggle('hidden', currentStep === TOTAL_STEPS);
   document.getElementById('btn-submit').classList.toggle('hidden', currentStep !== TOTAL_STEPS);
+  document.getElementById('btn-cancel-edit').classList.toggle('hidden', !_editingRecordId);
 }
 
 function validateStep(step) {
@@ -314,7 +315,7 @@ function prevStep() {
   }
 }
 
-// ── FORM SUBMIT ──
+// ── FORM SUBMIT (Insert or Update) ──
 async function handleSubmit(e) {
   e.preventDefault();
   if (!validateStep(currentStep)) {
@@ -328,7 +329,7 @@ async function handleSubmit(e) {
 
   const btn = document.getElementById('btn-submit');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-sm"></span> Submitting…';
+  btn.innerHTML = '<span class="spinner-sm"></span> ' + (_editingRecordId ? 'Updating…' : 'Submitting…');
 
   const payload = {
     user_id: currentUser.id,
@@ -369,10 +370,17 @@ async function handleSubmit(e) {
     q34_mobile_number: document.getElementById('q34').value.trim(),
   };
 
-  const { error } = await db.from('census_surveys').insert([payload]);
+  let error;
+  if (_editingRecordId) {
+    const { error: updErr } = await db.from('census_surveys').update(payload).eq('id', _editingRecordId);
+    error = updErr;
+  } else {
+    const { error: insErr } = await db.from('census_surveys').insert([payload]);
+    error = insErr;
+  }
 
   btn.disabled = false;
-  btn.innerHTML = '✅ Submit Survey';
+  btn.innerHTML = _editingRecordId ? '💾 Update Survey' : '✅ Submit Survey';
 
   if (error) {
     showToast('❌ Error: ' + error.message);
@@ -388,6 +396,12 @@ async function handleSubmit(e) {
     document.getElementById('suc-details').innerHTML = rows.map(([l, v]) =>
       `<div class="detail-row-item"><div class="detail-label">${l}</div><div class="detail-val">${v}</div></div>`
     ).join('');
+
+    if (_editingRecordId) {
+      _editingRecordId = null;
+      btn.innerHTML = '✅ Submit Survey';
+      showToast('✅ Record updated successfully!');
+    }
     showScreen('success');
   }
 }
@@ -399,6 +413,8 @@ function submitAnother() {
   });
   currentStep = 1;
   updateProgress();
+  _editingRecordId = null;
+  document.getElementById('btn-submit').innerHTML = '✅ Submit Survey';
   showScreen('main');
 }
 
@@ -512,9 +528,18 @@ function updatePwdStrength(pwd, fillId, labelId) {
   label.style.color = lv.color;
 }
 
-// ── RECORDS ──
+// ═══════════════════════════════════════════════════════════
+//  MY RECORDS — Date Filter + Export + View/Edit
+// ═══════════════════════════════════════════════════════════
+let _myRecordsCache = [];
+let _editingRecordId = null;
+
 async function openRecords() {
   showScreen('records');
+  await loadMyRecords();
+}
+
+async function loadMyRecords(from, to) {
   const body = document.getElementById('records-body');
   body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--t3);">⏳ Loading…</div>';
 
@@ -524,25 +549,26 @@ async function openRecords() {
   }
 
   try {
-    const { data, error } = await db
-      .from('census_surveys')
-      .select('*')
-      .eq('user_id', currentUser.id)
-      .order('created_at', { ascending: false });
+    let query = db.from('census_surveys').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false });
+    if (from) query = query.gte('created_at', from + 'T00:00:00');
+    if (to) query = query.lte('created_at', to + 'T23:59:59');
 
+    const { data, error } = await query;
     if (error) throw error;
 
-    if (!data || data.length === 0) {
-      body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--t3);">📭 No submissions yet.</div>';
+    _myRecordsCache = data || [];
+
+    if (!_myRecordsCache.length) {
+      body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--t3);">📭 No submissions for this period.</div>';
       return;
     }
 
     let html = `<table class="records-table"><thead><tr>
       <th>#</th><th>Date</th><th>Line No.</th><th>Building</th><th>House</th>
-      <th>Head Name</th><th>Persons</th><th>Mobile</th>
+      <th>Head Name</th><th>Persons</th><th>Mobile</th><th>Actions</th>
     </tr></thead><tbody>`;
 
-    data.forEach((r, i) => {
+    _myRecordsCache.forEach((r, i) => {
       const dt = new Date(r.created_at);
       const date = dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
       const time = dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
@@ -555,6 +581,10 @@ async function openRecords() {
         <td>${escapeHtml(r.q11_head_name || '—')}</td>
         <td>${r.q10_persons_count || '—'}</td>
         <td>${escapeHtml(r.q34_mobile_number || '—')}</td>
+        <td>
+          <button class="action-btn" style="background:var(--indigo-sub);color:var(--indigo-lt);border:1px solid var(--indigo-border);padding:5px 12px;font-size:0.75rem;border-radius:var(--r-full);cursor:pointer;" onclick="openUserViewModal('${r.id}')">👁 View</button>
+          <button class="action-btn" style="background:var(--amber-sub);color:var(--amber-lt);border:1px solid var(--amber-border);padding:5px 12px;font-size:0.75rem;border-radius:var(--r-full);cursor:pointer;margin-left:4px;" onclick="startEditRecord('${r.id}')">✏️ Edit</button>
+        </td>
       </tr>`;
     });
 
@@ -565,11 +595,63 @@ async function openRecords() {
   }
 }
 
+function applyMyFilter() {
+  const from = document.getElementById('my-from').value;
+  const to = document.getElementById('my-to').value;
+  loadMyRecords(from, to);
+}
+
+function resetMyFilter() {
+  document.getElementById('my-from').value = '';
+  document.getElementById('my-to').value = '';
+  loadMyRecords();
+}
+
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
 }
+
+// ═══════════════════════════════════════════════════════════
+//  QUESTION LABELS (for exports, view modals, etc.)
+// ═══════════════════════════════════════════════════════════
+const QUESTION_LABELS = [
+  { key: 'q1_line_number', label: 'Q1. Line Number' },
+  { key: 'q2_building_number', label: 'Q2. Building Number' },
+  { key: 'q3_census_house_number', label: 'Q3. Census House Number' },
+  { key: 'q4_floor_material', label: 'Q4. Floor Material' },
+  { key: 'q5_wall_material', label: 'Q5. Wall Material' },
+  { key: 'q6_roof_material', label: 'Q6. Roof Material' },
+  { key: 'q7_house_usage', label: 'Q7. House Usage' },
+  { key: 'q8_house_condition', label: 'Q8. House Condition' },
+  { key: 'q9_family_serial', label: 'Q9. Family Serial No.' },
+  { key: 'q10_persons_count', label: 'Q10. No. of Persons' },
+  { key: 'q11_head_name', label: 'Q11. Head of Family' },
+  { key: 'q12_gender', label: 'Q12. Gender' },
+  { key: 'q13_category', label: 'Q13. Category' },
+  { key: 'q14_ownership', label: 'Q14. Ownership Status' },
+  { key: 'q15_rooms_count', label: 'Q15. No. of Rooms' },
+  { key: 'q16_married_couples', label: 'Q16. Married Couples' },
+  { key: 'q17_water_source', label: 'Q17. Drinking Water Source' },
+  { key: 'q18_water_availability', label: 'Q18. Water Availability' },
+  { key: 'q19_light_source', label: 'Q19. Light Source' },
+  { key: 'q20_toilet_facility', label: 'Q20. Toilet Facility' },
+  { key: 'q21_toilet_type', label: 'Q21. Toilet Type' },
+  { key: 'q22_drainage', label: 'Q22. Waste Water Drainage' },
+  { key: 'q23_bathing_facility', label: 'Q23. Bathing Facility' },
+  { key: 'q24_kitchen_gas', label: 'Q24. Kitchen & Gas' },
+  { key: 'q25_cooking_fuel', label: 'Q25. Cooking Fuel' },
+  { key: 'q26_radio', label: 'Q26. Radio' },
+  { key: 'q27_tv', label: 'Q27. TV' },
+  { key: 'q28_internet', label: 'Q28. Internet' },
+  { key: 'q29_laptop', label: 'Q29. Laptop/Computer' },
+  { key: 'q30_phone', label: 'Q30. Phone/Mobile' },
+  { key: 'q31_cycle_scooter', label: 'Q31. Cycle/Scooter' },
+  { key: 'q32_car', label: 'Q32. Car/Jeep/Van' },
+  { key: 'q33_main_grain', label: 'Q33. Main Grain' },
+  { key: 'q34_mobile_number', label: 'Q34. Mobile Number' },
+];
 
 // ── EVENT LISTENERS ──
 function setupEventListeners() {
@@ -756,6 +838,186 @@ function setupEventListeners() {
       }
     });
   });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  VIEW REPORT MODAL (User)
+// ═══════════════════════════════════════════════════════════
+
+function openUserViewModal(recordId) {
+  const record = _myRecordsCache.find(r => r.id === recordId);
+  if (!record) return;
+
+  const dt = new Date(record.created_at);
+  const dateStr = dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  let html = `<div style="margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--bd);">
+    <div style="font-size:0.65rem;color:var(--t3);font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Submitted</div>
+    <div style="font-weight:700;color:var(--t1);">${dateStr}</div>
+  </div>`;
+
+  html += '<div style="display:grid;grid-template-columns:1fr;gap:10px;">';
+  QUESTION_LABELS.forEach(q => {
+    const val = record[q.key];
+    const displayVal = val !== null && val !== undefined && val !== '' ? String(val) : '—';
+    html += `<div style="display:flex;gap:12px;padding:10px 12px;background:var(--bg-raised);border-radius:var(--r-md);border:1px solid var(--bd);">
+      <div style="font-size:0.65rem;color:var(--t3);font-weight:700;text-transform:uppercase;letter-spacing:1px;min-width:140px;flex-shrink:0;padding-top:2px;">${q.label}</div>
+      <div style="font-size:0.88rem;font-weight:600;color:var(--t1);word-break:break-word;">${escapeHtml(displayVal)}</div>
+    </div>`;
+  });
+  html += '</div>';
+
+  document.getElementById('user-view-modal-body').innerHTML = html;
+  document.getElementById('modal-view-report').style.display = 'flex';
+}
+
+function closeUserViewModal() {
+  document.getElementById('modal-view-report').style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════════════════
+//  EDIT REPORT FLOW
+// ═══════════════════════════════════════════════════════════
+
+async function startEditRecord(recordId) {
+  const record = _myRecordsCache.find(r => r.id === recordId);
+  if (!record) return;
+
+  _editingRecordId = recordId;
+  loadRecordIntoWizard(record);
+
+  // Reset to step 1 and show main screen
+  document.querySelectorAll('.step').forEach((s, i) => s.classList.toggle('hidden', i !== 0));
+  currentStep = 1;
+  updateProgress();
+  showScreen('main');
+
+  // Change submit button text
+  const btn = document.getElementById('btn-submit');
+  btn.innerHTML = '💾 Update Survey';
+
+  showToast('✏️ Editing record. Make changes and submit.');
+}
+
+function loadRecordIntoWizard(record) {
+  // Text / number inputs
+  ['q1','q2','q3','q9','q10','q11','q15','q16','q34'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = record[id] || '';
+  });
+
+  // Radio buttons
+  const radioFields = ['q4','q5','q6','q7','q8','q12','q13','q14','q17','q18','q19','q20','q21','q22','q23','q24','q25','q26','q27','q28','q29','q30','q31','q32','q33'];
+  radioFields.forEach(name => {
+    const val = record[name];
+    if (val) {
+      const rb = document.querySelector(`input[name="${name}"][value="${CSS.escape(val)}"]`);
+      if (rb) rb.checked = true;
+    }
+  });
+}
+
+function cancelEdit() {
+  _editingRecordId = null;
+  document.getElementById('survey-form').reset();
+  document.querySelectorAll('.step').forEach((s, i) => s.classList.toggle('hidden', i !== 0));
+  currentStep = 1;
+  updateProgress();
+  document.getElementById('btn-submit').innerHTML = '✅ Submit Survey';
+  showToast('❌ Edit cancelled.');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  EXCEL EXPORT (User)
+// ═══════════════════════════════════════════════════════════
+
+function exportMyExcel() {
+  if (!_myRecordsCache.length) { showToast('⚠️ No data to export.'); return; }
+  if (typeof XLSX === 'undefined') { showToast('⚠️ Excel library not loaded yet.'); return; }
+
+  const headers = ['#', 'Date', ...QUESTION_LABELS.map(q => q.label)];
+  const rows = _myRecordsCache.map((r, i) => {
+    const dt = new Date(r.created_at);
+    return [
+      i + 1,
+      dt.toLocaleDateString('en-IN') + ' ' + dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+      ...QUESTION_LABELS.map(q => r[q.key] ?? '')
+    ];
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'My Surveys');
+
+  const from = document.getElementById('my-from').value || 'all';
+  const to = document.getElementById('my-to').value || 'all';
+  const name = currentUser?.email?.split('@')[0] || 'Surveyor';
+  XLSX.writeFile(wb, `Census_MySurveys_${name}_${from}_to_${to}.xlsx`);
+  showToast('✅ Excel exported successfully!');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  PDF EXPORT (User) — One page per report
+// ═══════════════════════════════════════════════════════════
+
+async function exportMyPDF() {
+  if (!_myRecordsCache.length) { showToast('⚠️ No data to export.'); return; }
+  if (typeof jspdf === 'undefined') { showToast('⚠️ PDF library not loaded yet.'); return; }
+
+  const { jsPDF } = jspdf;
+  const pdf = new jsPDF('p', 'mm', 'a4');
+  const pageWidth = 210;
+  const margin = 14;
+  let y = margin;
+
+  _myRecordsCache.forEach((record, idx) => {
+    if (idx > 0) {
+      pdf.addPage();
+      y = margin;
+    }
+
+    // Header
+    pdf.setFillColor(79, 70, 229);
+    pdf.rect(margin, y, pageWidth - margin * 2, 12, 'F');
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFontSize(14);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Census Survey Report', pageWidth / 2, y + 8, { align: 'center' });
+    y += 18;
+
+    // Meta info
+    const dt = new Date(record.created_at);
+    pdf.setTextColor(100, 100, 100);
+    pdf.setFontSize(9);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(`Submitted: ${dt.toLocaleDateString('en-IN')} ${dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`, margin, y);
+    pdf.text(`Surveyor: ${record.surveyor_email || ''}`, margin, y + 5);
+    y += 14;
+
+    // Questions
+    pdf.setFontSize(10);
+    QUESTION_LABELS.forEach(q => {
+      if (y > 280) {
+        pdf.addPage();
+        y = margin;
+      }
+      const val = String(record[q.key] ?? '—');
+      pdf.setTextColor(79, 70, 229);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(q.label, margin, y);
+      pdf.setTextColor(30, 30, 30);
+      pdf.setFont('helvetica', 'normal');
+      const splitVal = pdf.splitTextToSize(val, pageWidth - margin * 2);
+      pdf.text(splitVal, margin, y + 5);
+      y += 5 + (splitVal.length * 4.5) + 4;
+    });
+  });
+
+  const from = document.getElementById('my-from').value || 'all';
+  const to = document.getElementById('my-to').value || 'all';
+  const name = currentUser?.email?.split('@')[0] || 'Surveyor';
+  pdf.save(`Census_Reports_${name}_${from}_to_${to}.pdf`);
+  showToast('✅ PDF exported successfully!');
 }
 
 function showError(el, msg) {

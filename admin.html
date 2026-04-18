@@ -7,6 +7,9 @@
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
   <style>
     .admin-container { max-width: 1200px; margin: 0 auto; padding: 20px 16px 40px; position: relative; z-index: 1; }
     .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
@@ -128,12 +131,56 @@
       <!-- Surveys Section -->
       <div id="section-surveys" class="hidden">
         <div class="section-title">📋 All Survey Submissions</div>
+
+        <!-- Date Filter + Export -->
+        <div class="glass-card" style="margin-bottom:16px;">
+          <div class="card-body">
+            <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;">
+              <div>
+                <label class="form-label">From</label>
+                <input type="date" id="admin-from" class="form-input" style="width:150px;padding:8px 12px;">
+              </div>
+              <div>
+                <label class="form-label">To</label>
+                <input type="date" id="admin-to" class="form-input" style="width:150px;padding:8px 12px;">
+              </div>
+              <button class="btn btn-primary" style="width:auto;padding:9px 22px;" onclick="applyAdminFilter()">Apply</button>
+              <button class="btn btn-outline" style="width:auto;padding:9px 22px;" onclick="resetAdminFilter()">Reset</button>
+              <div style="margin-left:auto;display:flex;gap:8px;">
+                <button class="btn btn-success" style="width:auto;padding:9px 18px;background:linear-gradient(135deg,#10B981,#059669);" onclick="exportAdminExcel()">📊 Excel</button>
+                <button class="btn btn-success" style="width:auto;padding:9px 18px;background:linear-gradient(135deg,#F59E0B,#F97316);" onclick="exportAdminPDF()">📄 PDF</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div id="all-surveys-list" style="overflow-x:auto;">
           <div class="empty-state">⏳ Loading surveys…</div>
         </div>
       </div>
     </div>
   </div>
+
+  <!-- VIEW REPORT MODAL -->
+  <div id="modal-view-report" class="modal-backdrop" style="display:none;" onclick="if(event.target===this)closeViewModal()">
+    <div class="modal-content" style="max-width:640px;max-height:90vh;" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div class="modal-title">📋 Survey Report Details</div>
+        <button class="modal-close" type="button" onclick="closeViewModal()">✕</button>
+      </div>
+      <div id="view-modal-body" style="padding:20px 24px 24px;overflow-y:auto;max-height:70vh;"></div>
+    </div>
+  </div>
+
+  <style>
+    .modal-backdrop { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); backdrop-filter: blur(4px); padding: 16px; }
+    .modal-content { background: var(--bg-card); backdrop-filter: blur(20px); border: 1px solid var(--glass-bd); border-radius: var(--r-2xl); width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto; box-shadow: var(--sh-xl); animation: fadeSlideIn 0.3s var(--spring) both; }
+    .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px 16px; border-bottom: 1px solid var(--bd); }
+    .modal-title { font-family: var(--font-heading); font-size: 1.1rem; font-weight: 800; color: var(--t1); }
+    .modal-close { width: 32px; height: 32px; border-radius: var(--r-full); border: 1px solid var(--bd2); background: var(--bg-raised); color: var(--t3); font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+    .modal-close:hover { background: var(--rose-sub); color: var(--rose-lt); border-color: var(--rose-border); }
+    @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
 
   <div id="global-toast" class="toast"></div>
 

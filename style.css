@@ -310,3 +310,17 @@ body {
   .radio-group { grid-template-columns: 1fr; }
   .btn { padding: 10px 14px; font-size: 0.82rem; }
 }
+
+/* ── Modals ── */
+.modal-backdrop { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); backdrop-filter: blur(4px); padding: 16px; }
+.modal-content { background: var(--bg-card); backdrop-filter: blur(20px); border: 1px solid var(--glass-bd); border-radius: var(--r-2xl); width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto; box-shadow: var(--sh-xl); animation: fadeSlideIn 0.3s var(--spring) both; }
+.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px 16px; border-bottom: 1px solid var(--bd); }
+.modal-title { font-family: var(--font-heading); font-size: 1.1rem; font-weight: 800; color: var(--t1); }
+.modal-close { width: 32px; height: 32px; border-radius: var(--r-full); border: 1px solid var(--bd2); background: var(--bg-raised); color: var(--t3); font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+.modal-close:hover { background: var(--rose-sub); color: var(--rose-lt); border-color: var(--rose-border); }
+
+/* ── Action Buttons (tables) ── */
+.action-btn { padding: 7px 16px; border-radius: var(--r-full); border: none; font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: all 0.2s; font-family: var(--font-body); }
+.btn-approve { background: linear-gradient(135deg, var(--emerald), #059669); color: #fff; box-shadow: 0 2px 8px rgba(16,185,129,0.3); }
+.btn-reject { background: var(--rose-sub); color: var(--rose-lt); border: 1px solid var(--rose-border); }
+.btn-reset { background: var(--amber-sub); color: var(--amber-lt); border: 1px solid var(--amber-border); }
