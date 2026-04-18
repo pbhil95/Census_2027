@@ -821,24 +821,29 @@ function setupEventListeners() {
     });
   });
 
-  // Logout
+  // Logout — Optimistic pattern: clear local state FIRST for instant response,
+  // then sign out from Supabase in the background with a timeout safety net.
   document.querySelectorAll('.btn-logout').forEach(btn => {
     btn.addEventListener('click', async () => {
       btn.disabled = true;
-      ST.loading.classList.remove('fade-out', 'hidden');
+
+      // ── Step 1: Instant local logout (no waiting) ──
+      currentUser = null;
+      currentProfile = null;
+      recoveryMode = false;
+      stopApprovalWatcher();
+      showScreen('auth');                          // User sees login screen immediately
+
+      // ── Step 2: Tell Supabase to invalidate the session (best-effort, background) ──
       try {
-        await db.auth.signOut();
-        currentUser = null;
-        currentProfile = null;
-        recoveryMode = false;
-        stopApprovalWatcher();
-        showScreen('auth');
-        ST.loading.classList.add('fade-out');
-        setTimeout(() => ST.loading.classList.add('hidden'), 300);
+        const signOutPromise = db ? db.auth.signOut() : Promise.resolve();
+        const timeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('signOut timed out')), 5000)
+        );
+        await Promise.race([signOutPromise, timeout]);
       } catch (e) {
-        showToast('⚠️ Sign out failed. Please try again.');
-        ST.loading.classList.add('fade-out');
-        setTimeout(() => ST.loading.classList.add('hidden'), 300);
+        // Network is down or timed out — local state is already cleared, nothing to do
+        console.warn('SignOut background error (user already logged out locally):', e.message);
       } finally {
         btn.disabled = false;
       }
