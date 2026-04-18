@@ -599,7 +599,7 @@
               </div>
               <div class="form-group">
                 <label class="form-label" for="q34">Q34. मोबाइल नम्बर (Mobile Number) <span class="req">*</span></label>
-                <input type="tel" id="q34" class="form-input" placeholder="Enter 10-digit mobile number" required pattern="[0-9]{10}" maxlength="10">
+                <input type="tel" id="q34" class="form-input" placeholder="Enter 10-digit Indian mobile number" required pattern="[6-9][0-9]{9}" maxlength="10">
               </div>
             </div>
           </div>
@@ -751,7 +751,7 @@
       document.documentElement.setAttribute('data-theme', t);
       document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('.theme-toggle').forEach(btn => {
-          btn.textContent = t === 'dark' ? '☀' : '🌙';
+          btn.textContent = t === 'dark' ? '☀️' : '🌙';
         });
       });
     })();

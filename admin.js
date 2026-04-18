@@ -4,7 +4,10 @@
 
 const SUPABASE_URL = 'https://dvmhgzsxdidrvztmfrcq.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR2bWhnenN4ZGlkcnZ6dG1mcmNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY1MTQ4MTAsImV4cCI6MjA5MjA5MDgxMH0.Z2CgTRQOEHS9GtQLcbW6bNjnGDYhCg-TwApRVu3IoLo';
-const ADMIN_PIN = '2027';
+// Admin PIN stored as base64 to avoid plaintext exposure in source.
+// Real security relies on Supabase RLS — this only prevents accidental access.
+// To change PIN: run  btoa('YOUR_NEW_PIN')  in the browser console.
+const ADMIN_PIN_B64 = 'MjAyNw=='; // base64 of '2027'
 
 // ── EMAILJS CONFIG ──
 const EMAILJS_PUBLIC_KEY = 'U9zPnVXLtEzAkZ54k';
@@ -45,7 +48,7 @@ if (document.readyState === 'loading') {
 function verifyPin() {
   const input = document.getElementById('pinInput').value.trim();
   const err = document.getElementById('pinErr');
-  if (input === ADMIN_PIN) {
+  if (input === atob(ADMIN_PIN_B64)) {
     err.classList.add('hidden');
     document.getElementById('pinScreen').classList.add('hidden');
     document.getElementById('dashboard').classList.remove('hidden');
@@ -68,7 +71,7 @@ function toggleTheme() {
   const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem('census-theme', next);
-  document.querySelectorAll('.theme-toggle').forEach(b => b.textContent = next === 'dark' ? '☀' : '🌙');
+  document.querySelectorAll('.theme-toggle').forEach(b => b.textContent = next === 'dark' ? '☀️' : '🌙');
 }
 
 // ── TABS ──
@@ -207,8 +210,8 @@ async function loadSurveys(from, to) {
 
   try {
     let query = db.from('census_surveys').select('*').order('created_at', { ascending: false });
-    if (from) query = query.gte('created_at', from + 'T00:00:00');
-    if (to) query = query.lte('created_at', to + 'T23:59:59');
+    if (from) query = query.gte('created_at', from + 'T00:00:00+05:30'); // IST offset
+    if (to) query = query.lte('created_at', to + 'T23:59:59+05:30');     // IST offset
     const { data, error } = await query;
     if (error) throw error;
     allSurveys = data || [];
@@ -379,8 +382,18 @@ async function exportAdminPDF() {
   }
 
   const el = document.getElementById('all-surveys-list');
-  const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
-  const imgData = canvas.toDataURL('image/png');
+
+  // Force light theme so CSS variables resolve to readable colours in the PDF
+  const prevTheme = document.documentElement.getAttribute('data-theme');
+  document.documentElement.setAttribute('data-theme', 'light');
+  await new Promise(r => setTimeout(r, 120)); // allow browser repaint
+
+  const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+
+  // Restore original theme immediately after capture
+  document.documentElement.setAttribute('data-theme', prevTheme);
+
+  const imgData = canvas.toDataURL('image/jpeg', 0.92);
 
   const { jsPDF } = jspdf;
   const pdf = new jsPDF('l', 'mm', 'a4');
@@ -390,13 +403,13 @@ async function exportAdminPDF() {
   let heightLeft = imgHeight;
   let position = 0;
 
-  pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+  pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
   heightLeft -= pageHeight;
 
   while (heightLeft > 0) {
     position = heightLeft - imgHeight;
     pdf.addPage();
-    pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+    pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
     heightLeft -= pageHeight;
   }
 

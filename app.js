@@ -257,69 +257,216 @@ function updateProgress() {
   document.getElementById('btn-cancel-edit').classList.toggle('hidden', !_editingRecordId);
 }
 
-function validateStep(step) {
+function showWizardStep(step) {
+  document.querySelectorAll('.step').forEach(s => {
+    s.classList.toggle('hidden', Number(s.dataset.step) !== step);
+  });
+  currentStep = step;
+  updateProgress();
+  window.scrollTo(0, 0);
+}
+
+function escapeSelector(value) {
+  if (window.CSS && typeof CSS.escape === 'function') return CSS.escape(value);
+  return String(value).replace(/["\\]/g, '\\$&');
+}
+
+function fieldGroupFor(control) {
+  return control?.closest('.form-group') || null;
+}
+
+function getFieldLabel(group) {
+  const label = group?.querySelector('.form-label');
+  if (!label) return 'This field';
+  return label.textContent.replace('*', '').replace(/\s+/g, ' ').trim();
+}
+
+function getFieldErrorNode(group) {
+  let node = group.querySelector('.field-error');
+  if (!node) {
+    node = document.createElement('div');
+    node.className = 'field-error';
+    node.setAttribute('role', 'alert');
+    group.appendChild(node);
+  }
+  return node;
+}
+
+function setFieldError(control, message) {
+  const group = fieldGroupFor(control);
+  if (!group) return;
+
+  const errorNode = getFieldErrorNode(group);
+  if (!errorNode.id) {
+    const key = control.name || control.id || Math.random().toString(36).slice(2);
+    errorNode.id = `err-${key}`;
+  }
+
+  group.classList.add('has-error');
+  errorNode.textContent = message;
+
+  if (control.type === 'radio') {
+    const radios = group.querySelectorAll(`input[type="radio"][name="${escapeSelector(control.name)}"]`);
+    radios.forEach(radio => {
+      radio.setAttribute('aria-invalid', 'true');
+      radio.setAttribute('aria-describedby', errorNode.id);
+    });
+    group.querySelector('.radio-group')?.classList.add('has-error');
+  } else {
+    control.classList.add('is-invalid');
+    control.setAttribute('aria-invalid', 'true');
+    control.setAttribute('aria-describedby', errorNode.id);
+  }
+}
+
+function clearFieldError(control) {
+  const group = fieldGroupFor(control);
+  if (!group) return;
+
+  group.classList.remove('has-error');
+  const errorNode = group.querySelector('.field-error');
+  if (errorNode) errorNode.textContent = '';
+
+  if (control.type === 'radio') {
+    const radios = group.querySelectorAll(`input[type="radio"][name="${escapeSelector(control.name)}"]`);
+    radios.forEach(radio => {
+      radio.removeAttribute('aria-invalid');
+      radio.removeAttribute('aria-describedby');
+    });
+    group.querySelector('.radio-group')?.classList.remove('has-error');
+  } else {
+    control.classList.remove('is-invalid');
+    control.removeAttribute('aria-invalid');
+    control.removeAttribute('aria-describedby');
+  }
+}
+
+function validationMessageForInput(input) {
+  const value = input.value.trim();
+  const label = getFieldLabel(fieldGroupFor(input));
+
+  if (input.required && !value) return `${label} is required.`;
+  if (!value) return '';
+
+  if (input.id === 'q34' && !/^[6-9]\d{9}$/.test(value)) {
+    return 'Enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.';
+  }
+
+  if (input.type === 'number') {
+    const numericValue = Number(value);
+    if (Number.isNaN(numericValue)) return 'Enter a valid number.';
+    if (input.min !== '' && numericValue < Number(input.min)) return `Value must be ${input.min} or more.`;
+    if (input.max !== '' && numericValue > Number(input.max)) return `Value must be ${input.max} or less.`;
+  }
+
+  if (input.type === 'email' && !input.checkValidity()) return 'Enter a valid email address.';
+  if (input.minLength > 0 && value.length < input.minLength) {
+    return `Enter at least ${input.minLength} characters.`;
+  }
+  if (input.pattern && !input.checkValidity()) return 'Enter a valid value.';
+
+  return '';
+}
+
+function validateInput(input, showErrorState = true) {
+  const message = validationMessageForInput(input);
+  if (message) {
+    if (showErrorState) setFieldError(input, message);
+    return false;
+  }
+  clearFieldError(input);
+  return true;
+}
+
+function validateRadioGroup(name, container, showErrorState = true) {
+  const firstRadio = container.querySelector(`input[type="radio"][name="${escapeSelector(name)}"]`);
+  if (!firstRadio) return true;
+
+  const checked = container.querySelector(`input[type="radio"][name="${escapeSelector(name)}"]:checked`);
+  if (!checked) {
+    if (showErrorState) setFieldError(firstRadio, 'Please choose one option.');
+    return false;
+  }
+
+  clearFieldError(firstRadio);
+  return true;
+}
+
+function focusFirstInvalid(container) {
+  const firstInvalid = container.querySelector('.form-group.has-error input, .form-group.has-error select');
+  if (!firstInvalid) return;
+
+  firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (firstInvalid.type !== 'radio') {
+    setTimeout(() => firstInvalid.focus({ preventScroll: true }), 250);
+  }
+}
+
+function clearFormValidation() {
+  document.querySelectorAll('#survey-form .has-error').forEach(el => el.classList.remove('has-error'));
+  document.querySelectorAll('#survey-form .is-invalid').forEach(el => el.classList.remove('is-invalid'));
+  document.querySelectorAll('#survey-form .field-error').forEach(el => { el.textContent = ''; });
+  document.querySelectorAll('#survey-form [aria-invalid]').forEach(el => {
+    el.removeAttribute('aria-invalid');
+    el.removeAttribute('aria-describedby');
+  });
+}
+
+function validateStep(step, options = {}) {
   const container = document.querySelector(`.step[data-step="${step}"]`);
   if (!container) return true;
 
-  const requiredInputs = container.querySelectorAll('input[required], select[required]');
+  const requiredInputs = container.querySelectorAll('input[required]:not([type="radio"]), select[required]');
+  const requiredRadioNames = [...new Set(
+    Array.from(container.querySelectorAll('input[type="radio"][required]')).map(input => input.name)
+  )];
   let valid = true;
 
   requiredInputs.forEach(input => {
-    if (input.type === 'radio') {
-      const name = input.name;
-      const checked = container.querySelector(`input[name="${name}"]:checked`);
-      if (!checked) valid = false;
-    } else if (!input.value.trim()) {
-      valid = false;
-      input.style.borderColor = 'var(--rose)';
-      setTimeout(() => { input.style.borderColor = ''; }, 2000);
-    }
+    if (!validateInput(input, true)) valid = false;
   });
 
-  if (step === TOTAL_STEPS) {
-    const mobile = document.getElementById('q34');
-    if (mobile && mobile.value.trim()) {
-      if (!/^\d{10}$/.test(mobile.value.trim())) {
-        showToast('⚠️ Mobile number must be exactly 10 digits');
-        mobile.style.borderColor = 'var(--rose)';
-        setTimeout(() => { mobile.style.borderColor = ''; }, 2000);
-        return false;
-      }
-    }
-  }
+  requiredRadioNames.forEach(name => {
+    if (!validateRadioGroup(name, container, true)) valid = false;
+  });
+
+  if (!valid && options.focus !== false) focusFirstInvalid(container);
 
   return valid;
 }
 
+function getFirstInvalidSurveyStep() {
+  for (let step = 1; step <= TOTAL_STEPS; step++) {
+    if (!validateStep(step, { focus: false })) return step;
+  }
+  return null;
+}
+
 function nextStep() {
   if (!validateStep(currentStep)) {
-    showToast('⚠️ Please fill all required fields');
+    showToast('Please complete the highlighted fields.');
     return;
   }
   if (currentStep < TOTAL_STEPS) {
-    document.querySelector(`.step[data-step="${currentStep}"]`).classList.add('hidden');
-    currentStep++;
-    document.querySelector(`.step[data-step="${currentStep}"]`).classList.remove('hidden');
-    updateProgress();
-    window.scrollTo(0, 0);
+    showWizardStep(currentStep + 1);
   }
 }
 
 function prevStep() {
   if (currentStep > 1) {
-    document.querySelector(`.step[data-step="${currentStep}"]`).classList.add('hidden');
-    currentStep--;
-    document.querySelector(`.step[data-step="${currentStep}"]`).classList.remove('hidden');
-    updateProgress();
-    window.scrollTo(0, 0);
+    showWizardStep(currentStep - 1);
   }
 }
 
 // ── FORM SUBMIT (Insert or Update) ──
 async function handleSubmit(e) {
   e.preventDefault();
-  if (!validateStep(currentStep)) {
-    showToast('⚠️ Please fill all required fields');
+  const invalidStep = getFirstInvalidSurveyStep();
+  if (invalidStep) {
+    showWizardStep(invalidStep);
+    const container = document.querySelector(`.step[data-step="${invalidStep}"]`);
+    setTimeout(() => focusFirstInvalid(container), 100);
+    showToast('Please complete the highlighted fields.');
     return;
   }
   if (!db || !currentUser) {
@@ -334,7 +481,7 @@ async function handleSubmit(e) {
   const payload = {
     user_id: currentUser.id,
     surveyor_email: currentUser.email,
-    q1_line_number: parseInt(document.getElementById('q1').value) || 0,
+    q1_line_number: parseInt(document.getElementById('q1').value, 10) || null,
     q2_building_number: document.getElementById('q2').value.trim(),
     q3_census_house_number: document.getElementById('q3').value.trim(),
     q4_floor_material: document.querySelector('input[name="q4"]:checked')?.value || '',
@@ -343,13 +490,13 @@ async function handleSubmit(e) {
     q7_house_usage: document.querySelector('input[name="q7"]:checked')?.value || '',
     q8_house_condition: document.querySelector('input[name="q8"]:checked')?.value || '',
     q9_family_serial: document.getElementById('q9').value.trim(),
-    q10_persons_count: parseInt(document.getElementById('q10').value) || 0,
+    q10_persons_count: parseInt(document.getElementById('q10').value, 10) || null,
     q11_head_name: document.getElementById('q11').value.trim(),
     q12_gender: document.querySelector('input[name="q12"]:checked')?.value || '',
     q13_category: document.querySelector('input[name="q13"]:checked')?.value || '',
     q14_ownership: document.querySelector('input[name="q14"]:checked')?.value || '',
-    q15_rooms_count: parseInt(document.getElementById('q15').value) || 0,
-    q16_married_couples: parseInt(document.getElementById('q16').value) || 0,
+    q15_rooms_count: parseInt(document.getElementById('q15').value, 10) || null,
+    q16_married_couples: parseInt(document.getElementById('q16').value, 10) || null,
     q17_water_source: document.querySelector('input[name="q17"]:checked')?.value || '',
     q18_water_availability: document.querySelector('input[name="q18"]:checked')?.value || '',
     q19_light_source: document.querySelector('input[name="q19"]:checked')?.value || '',
@@ -370,20 +517,28 @@ async function handleSubmit(e) {
     q34_mobile_number: document.getElementById('q34').value.trim(),
   };
 
-  let error;
-  if (_editingRecordId) {
-    const { error: updErr } = await db.from('census_surveys').update(payload).eq('id', _editingRecordId);
-    error = updErr;
-  } else {
-    const { error: insErr } = await db.from('census_surveys').insert([payload]);
-    error = insErr;
+  let error = null;
+  try {
+    const dbPromise = _editingRecordId
+      ? db.from('census_surveys').update(payload).eq('id', _editingRecordId)
+      : db.from('census_surveys').insert([payload]);
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Request timed out. Please check your connection and try again.')), 15000)
+    );
+
+    const result = await Promise.race([dbPromise, timeoutPromise]);
+    if (result.error) error = result.error;
+  } catch (err) {
+    error = err;
   }
 
   btn.disabled = false;
   btn.innerHTML = _editingRecordId ? '💾 Update Survey' : '✅ Submit Survey';
 
   if (error) {
-    showToast('❌ Error: ' + error.message);
+    showToast('❌ Error: ' + (error.message || 'Unknown error'));
+    console.error('Submit error:', error);
   } else {
     const rows = [
       ['Surveyor', currentUser.email],
@@ -408,6 +563,7 @@ async function handleSubmit(e) {
 
 function submitAnother() {
   document.getElementById('survey-form').reset();
+  clearFormValidation();
   document.querySelectorAll('.step').forEach((s, i) => {
     s.classList.toggle('hidden', i !== 0);
   });
@@ -550,8 +706,8 @@ async function loadMyRecords(from, to) {
 
   try {
     let query = db.from('census_surveys').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false });
-    if (from) query = query.gte('created_at', from + 'T00:00:00');
-    if (to) query = query.lte('created_at', to + 'T23:59:59');
+    if (from) query = query.gte('created_at', from + 'T00:00:00+05:30'); // IST offset
+    if (to) query = query.lte('created_at', to + 'T23:59:59+05:30');     // IST offset
 
     const { data, error } = await query;
     if (error) throw error;
@@ -661,7 +817,7 @@ function setupEventListeners() {
       const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', next);
       localStorage.setItem('census-theme', next);
-      document.querySelectorAll('.theme-toggle').forEach(b => b.textContent = next === 'dark' ? '☀' : '🌙');
+      document.querySelectorAll('.theme-toggle').forEach(b => b.textContent = next === 'dark' ? '☀️' : '🌙');
     });
   });
 
@@ -670,15 +826,22 @@ function setupEventListeners() {
     btn.addEventListener('click', async () => {
       btn.disabled = true;
       ST.loading.classList.remove('fade-out', 'hidden');
-      try { await db.auth.signOut(); } catch (e) {}
-      currentUser = null;
-      currentProfile = null;
-      recoveryMode = false;
-      stopApprovalWatcher();
-      showScreen('auth');
-      ST.loading.classList.add('fade-out');
-      setTimeout(() => ST.loading.classList.add('hidden'), 300);
-      btn.disabled = false;
+      try {
+        await db.auth.signOut();
+        currentUser = null;
+        currentProfile = null;
+        recoveryMode = false;
+        stopApprovalWatcher();
+        showScreen('auth');
+        ST.loading.classList.add('fade-out');
+        setTimeout(() => ST.loading.classList.add('hidden'), 300);
+      } catch (e) {
+        showToast('⚠️ Sign out failed. Please try again.');
+        ST.loading.classList.add('fade-out');
+        setTimeout(() => ST.loading.classList.add('hidden'), 300);
+      } finally {
+        btn.disabled = false;
+      }
     });
   });
 
@@ -757,7 +920,7 @@ function setupEventListeners() {
 
     try {
       const { data, error } = await db.auth.signUp({
-        email, password,
+        email, password: pwd,
         options: { data: { full_name: name, name } }
       });
       if (error) throw error;
@@ -771,13 +934,17 @@ function setupEventListeners() {
       }
     } catch (error) {
       showError(err, error.message);
+    } finally {
       btn.disabled = false;
       btn.textContent = 'Create Account →';
     }
   });
 
   // Survey form
-  document.getElementById('survey-form').addEventListener('submit', handleSubmit);
+  const surveyForm = document.getElementById('survey-form');
+  surveyForm.setAttribute('novalidate', 'novalidate');
+  surveyForm.addEventListener('submit', handleSubmit);
+  setupSurveyValidation();
 
   // Refresh status
   document.getElementById('btn-refresh-status')?.addEventListener('click', async () => {
@@ -830,12 +997,33 @@ function setupEventListeners() {
   });
 
   // Enter key on inputs
-  document.querySelectorAll('.form-input, .form-select').forEach(el => {
+  document.querySelectorAll('#survey-form .form-input, #survey-form .form-select').forEach(el => {
     el.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        if (currentStep < TOTAL_STEPS) nextStep();
+        if (currentStep < TOTAL_STEPS) {
+          nextStep();
+        } else {
+          document.getElementById('survey-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        }
       }
+    });
+  });
+}
+
+function setupSurveyValidation() {
+  document.querySelectorAll('#survey-form .form-input, #survey-form .form-select').forEach(input => {
+    input.addEventListener('input', () => {
+      if (input.id === 'q34') input.value = input.value.replace(/\D/g, '').slice(0, 10);
+      if (fieldGroupFor(input)?.classList.contains('has-error')) validateInput(input, true);
+    });
+    input.addEventListener('blur', () => validateInput(input, true));
+  });
+
+  document.querySelectorAll('#survey-form input[type="radio"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      const container = radio.closest('.step') || document;
+      validateRadioGroup(radio.name, container, true);
     });
   });
 }
@@ -884,6 +1072,8 @@ async function startEditRecord(recordId) {
   if (!record) return;
 
   _editingRecordId = recordId;
+  document.getElementById('survey-form').reset();
+  clearFormValidation();
   loadRecordIntoWizard(record);
 
   // Reset to step 1 and show main screen
@@ -900,16 +1090,51 @@ async function startEditRecord(recordId) {
 }
 
 function loadRecordIntoWizard(record) {
-  // Text / number inputs
-  ['q1','q2','q3','q9','q10','q11','q15','q16','q34'].forEach(id => {
+  const textMap = {
+    q1: 'q1_line_number',
+    q2: 'q2_building_number',
+    q3: 'q3_census_house_number',
+    q9: 'q9_family_serial',
+    q10: 'q10_persons_count',
+    q11: 'q11_head_name',
+    q15: 'q15_rooms_count',
+    q16: 'q16_married_couples',
+    q34: 'q34_mobile_number',
+  };
+  Object.entries(textMap).forEach(([id, col]) => {
     const el = document.getElementById(id);
-    if (el) el.value = record[id] || '';
+    if (el) el.value = record[col] ?? '';
   });
 
-  // Radio buttons
-  const radioFields = ['q4','q5','q6','q7','q8','q12','q13','q14','q17','q18','q19','q20','q21','q22','q23','q24','q25','q26','q27','q28','q29','q30','q31','q32','q33'];
-  radioFields.forEach(name => {
-    const val = record[name];
+  const radioMap = {
+    q4: 'q4_floor_material',
+    q5: 'q5_wall_material',
+    q6: 'q6_roof_material',
+    q7: 'q7_house_usage',
+    q8: 'q8_house_condition',
+    q12: 'q12_gender',
+    q13: 'q13_category',
+    q14: 'q14_ownership',
+    q17: 'q17_water_source',
+    q18: 'q18_water_availability',
+    q19: 'q19_light_source',
+    q20: 'q20_toilet_facility',
+    q21: 'q21_toilet_type',
+    q22: 'q22_drainage',
+    q23: 'q23_bathing_facility',
+    q24: 'q24_kitchen_gas',
+    q25: 'q25_cooking_fuel',
+    q26: 'q26_radio',
+    q27: 'q27_tv',
+    q28: 'q28_internet',
+    q29: 'q29_laptop',
+    q30: 'q30_phone',
+    q31: 'q31_cycle_scooter',
+    q32: 'q32_car',
+    q33: 'q33_main_grain',
+  };
+  Object.entries(radioMap).forEach(([name, col]) => {
+    const val = record[col];
     if (val) {
       const rb = document.querySelector(`input[name="${name}"][value="${CSS.escape(val)}"]`);
       if (rb) rb.checked = true;
@@ -920,6 +1145,7 @@ function loadRecordIntoWizard(record) {
 function cancelEdit() {
   _editingRecordId = null;
   document.getElementById('survey-form').reset();
+  clearFormValidation();
   document.querySelectorAll('.step').forEach((s, i) => s.classList.toggle('hidden', i !== 0));
   currentStep = 1;
   updateProgress();
@@ -957,61 +1183,82 @@ function exportMyExcel() {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  PDF EXPORT (User) — One page per report
+//  PDF EXPORT (User) — Single branded page per survey via html2canvas
 // ═══════════════════════════════════════════════════════════
 
 async function exportMyPDF() {
   if (!_myRecordsCache.length) { showToast('⚠️ No data to export.'); return; }
-  if (typeof jspdf === 'undefined') { showToast('⚠️ PDF library not loaded yet.'); return; }
+  if (typeof jspdf === 'undefined' || typeof html2canvas === 'undefined') {
+    showToast('⚠️ PDF libraries not loaded yet.'); return;
+  }
 
   const { jsPDF } = jspdf;
   const pdf = new jsPDF('p', 'mm', 'a4');
   const pageWidth = 210;
-  const margin = 14;
-  let y = margin;
+  const margin = 10;
+  const contentWidth = pageWidth - margin * 2;
 
-  _myRecordsCache.forEach((record, idx) => {
-    if (idx > 0) {
-      pdf.addPage();
-      y = margin;
-    }
+  // Off-screen render container
+  const container = document.createElement('div');
+  container.style.position = 'fixed';
+  container.style.left = '-9999px';
+  container.style.top = '0';
+  container.style.width = '794px';
+  document.body.appendChild(container);
 
-    // Header
-    pdf.setFillColor(79, 70, 229);
-    pdf.rect(margin, y, pageWidth - margin * 2, 12, 'F');
-    pdf.setTextColor(255, 255, 255);
-    pdf.setFontSize(14);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('Census Survey Report', pageWidth / 2, y + 8, { align: 'center' });
-    y += 18;
+  for (let i = 0; i < _myRecordsCache.length; i++) {
+    const record = _myRecordsCache[i];
 
-    // Meta info
     const dt = new Date(record.created_at);
-    pdf.setTextColor(100, 100, 100);
-    pdf.setFontSize(9);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(`Submitted: ${dt.toLocaleDateString('en-IN')} ${dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`, margin, y);
-    pdf.text(`Surveyor: ${record.surveyor_email || ''}`, margin, y + 5);
-    y += 14;
+    const dateStr = dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    const timeStr = dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 
-    // Questions
-    pdf.setFontSize(10);
-    QUESTION_LABELS.forEach(q => {
-      if (y > 280) {
-        pdf.addPage();
-        y = margin;
-      }
-      const val = String(record[q.key] ?? '—');
-      pdf.setTextColor(79, 70, 229);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(q.label, margin, y);
-      pdf.setTextColor(30, 30, 30);
-      pdf.setFont('helvetica', 'normal');
-      const splitVal = pdf.splitTextToSize(val, pageWidth - margin * 2);
-      pdf.text(splitVal, margin, y + 5);
-      y += 5 + (splitVal.length * 4.5) + 4;
+    let rowsHtml = '';
+    QUESTION_LABELS.forEach((q, idx) => {
+      const val = record[q.key] !== null && record[q.key] !== undefined ? String(record[q.key]) : '—';
+      const bg = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+      rowsHtml += `
+        <tr style="background:${bg};">
+          <td style="padding:5px 14px;border-bottom:1px solid #e2e8f0;width:52%;color:#4f46e5;font-weight:700;font-size:13px;line-height:1.4;">${escapeHtml(q.label)}</td>
+          <td style="padding:5px 14px;border-bottom:1px solid #e2e8f0;color:#1e293b;font-size:13px;line-height:1.4;word-break:break-word;">${escapeHtml(val)}</td>
+        </tr>`;
     });
-  });
+
+    container.innerHTML = `
+      <div style="font-family:'Noto Sans Devanagari','Segoe UI',system-ui,sans-serif;color:#334155;background:#fff;padding:28px 32px 16px;">
+        <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;padding:14px 18px;border-radius:10px 10px 0 0;font-weight:800;font-size:20px;letter-spacing:-0.3px;">
+          📋 Census Survey Report
+        </div>
+        <div style="padding:10px 18px;background:#f1f5f9;border-bottom:2px solid #e2e8f0;font-size:12px;color:#64748b;display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;">
+          <span>Submitted: <strong style="color:#475569;">${dateStr} ${timeStr}</strong></span>
+          <span>Surveyor: <strong style="color:#475569;">${escapeHtml(record.surveyor_email || '—')}</strong></span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;margin-top:2px;">
+          <tbody>${rowsHtml}</tbody>
+        </table>
+        <div style="margin-top:10px;text-align:center;font-size:11px;color:#94a3b8;letter-spacing:0.3px;">
+          Generated by Census Survey Portal
+        </div>
+      </div>
+    `;
+
+    await new Promise(r => setTimeout(r, 80));
+
+    const canvas = await html2canvas(container.firstElementChild, {
+      scale: 1.5,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      logging: false,
+    });
+
+    const imgData = canvas.toDataURL('image/jpeg', 0.9);
+    const imgHeight = (canvas.height * contentWidth) / canvas.width;
+
+    if (i > 0) pdf.addPage();
+    pdf.addImage(imgData, 'JPEG', margin, margin, contentWidth, imgHeight); // matches toDataURL('image/jpeg')
+  }
+
+  document.body.removeChild(container);
 
   const from = document.getElementById('my-from').value || 'all';
   const to = document.getElementById('my-to').value || 'all';
