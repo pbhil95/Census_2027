@@ -9,6 +9,7 @@
   --emerald-sub: rgba(16,185,129,0.12); --emerald-border: rgba(16,185,129,0.35);
   --rose: #F43F5E; --rose-lt: #FB7185; --rose-sub: rgba(244,63,94,0.12);
   --rose-border: rgba(244,63,94,0.35); --amber: #F59E0B; --amber-lt: #FBBF24;
+  --amber-sub: rgba(245,158,11,0.12); --amber-border: rgba(245,158,11,0.35);
   --cyan: #06B6D4; --cyan-lt: #22D3EE;
 
   --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 20px; --r-2xl: 24px; --r-full: 9999px;

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Admin Dashboard — Census Survey</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <style>
+    .admin-container { max-width: 1200px; margin: 0 auto; padding: 20px 16px 40px; position: relative; z-index: 1; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .stat-card { background: var(--bg-card); backdrop-filter: blur(16px); border: 1px solid var(--glass-bd); border-radius: var(--r-xl); padding: 18px 16px; box-shadow: var(--sh-md); text-align: center; }
+    .stat-val { font-family: var(--font-heading); font-size: 2rem; font-weight: 800; color: var(--t1); line-height: 1; margin-bottom: 6px; }
+    .stat-lbl { font-size: 0.62rem; color: var(--t3); text-transform: uppercase; font-weight: 700; letter-spacing: 1.2px; }
+    .pending-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; border-radius: var(--r-full); background: var(--rose); color: #fff; font-size: 0.7rem; font-weight: 800; margin-left: 6px; }
+    .surveyor-card { background: var(--bg-card); backdrop-filter: blur(16px); border: 1px solid var(--glass-bd); border-radius: var(--r-xl); padding: 16px 20px; box-shadow: var(--sh-sm); display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; transition: all 0.2s; }
+    .surveyor-card:hover { border-color: var(--indigo-border); }
+    .surveyor-avatar { width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, var(--indigo-sub), var(--indigo-border)); display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0; }
+    .surveyor-info { flex: 1; min-width: 180px; }
+    .surveyor-name { font-weight: 800; color: var(--t1); font-size: 0.95rem; }
+    .surveyor-email { font-size: 0.78rem; color: var(--t3); }
+    .surveyor-date { font-size: 0.7rem; color: var(--t3); margin-top: 2px; }
+    .surveyor-status { display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; border-radius: var(--r-full); font-size: 0.72rem; font-weight: 700; }
+    .status-pending { background: var(--rose-sub); color: var(--rose-lt); border: 1px solid var(--rose-border); }
+    .status-approved { background: var(--emerald-sub); color: var(--emerald-lt); border: 1px solid var(--emerald-border); }
+    .surveyor-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .action-btn { padding: 7px 16px; border-radius: var(--r-full); border: none; font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: all 0.2s; font-family: var(--font-body); }
+    .btn-approve { background: linear-gradient(135deg, var(--emerald), #059669); color: #fff; box-shadow: 0 2px 8px rgba(16,185,129,0.3); }
+    .btn-approve:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(16,185,129,0.4); }
+    .btn-reject { background: var(--rose-sub); color: var(--rose-lt); border: 1px solid var(--rose-border); }
+    .btn-reject:hover { background: var(--rose); color: #fff; }
+    .btn-reset { background: var(--amber-sub); color: var(--amber-lt); border: 1px solid var(--amber-border); }
+    .btn-reset:hover { background: var(--amber); color: #fff; }
+    .tabs-bar { display: flex; gap: 6px; margin-bottom: 20px; background: var(--bg-raised); border-radius: var(--r-full); padding: 4px; border: 1px solid var(--bd); width: fit-content; }
+    .tab-btn { padding: 8px 18px; border-radius: var(--r-full); font-size: 0.82rem; font-weight: 700; color: var(--t3); cursor: pointer; transition: all 0.2s; border: none; background: transparent; }
+    .tab-btn.active { background: linear-gradient(135deg, var(--indigo), var(--violet)); color: #fff; box-shadow: 0 2px 8px var(--indigo-glow); }
+    .section-title { font-family: var(--font-heading); font-size: 1.2rem; font-weight: 800; color: var(--t1); margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+    .empty-state { text-align: center; padding: 40px; color: var(--t3); font-size: 0.9rem; }
+    .records-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .records-table th { padding: 10px 12px; text-align: left; font-size: 0.6rem; color: var(--t3); text-transform: uppercase; letter-spacing: 1px; background: var(--bg-raised); white-space: nowrap; }
+    .records-table td { padding: 10px 12px; border-bottom: 1px solid var(--bd); color: var(--t1); }
+    .records-table tr:nth-child(even) td { background: var(--bg-raised); }
+    .send-email-wrap { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+    .send-email-wrap input { width: 16px; height: 16px; cursor: pointer; }
+    .send-email-wrap label { font-size: 0.75rem; color: var(--t3); cursor: pointer; font-weight: 600; }
+    @media (max-width: 640px) {
+      .stat-grid { grid-template-columns: repeat(2, 1fr); }
+      .surveyor-card { padding: 14px 16px; }
+      .surveyor-info { min-width: 140px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+
+  <!-- PIN SCREEN -->
+  <div id="pinScreen" class="fullscreen-overlay" style="z-index:2000;">
+    <button class="icon-btn" id="pinThemeBtn" onclick="toggleTheme()" title="Toggle dark mode" style="position:absolute;top:20px;right:20px;z-index:1;">🌙</button>
+    <div class="auth-card text-center" style="max-width:420px;">
+      <div class="pin-logo-wrap"><div class="pin-logo-ring"><div class="pin-logo-ring-inner">🛡️</div></div></div>
+      <h1 style="font-family:var(--font-heading);font-size:1.8rem;font-weight:900;color:var(--t1);letter-spacing:-0.5px;margin-bottom:4px;">Admin Dashboard</h1>
+      <p style="color:var(--t3);font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:2.5px;margin-bottom:36px;">Census Survey Portal</p>
+      <div class="form-group text-left">
+        <label class="form-label" for="pinInput">Admin Access PIN</label>
+        <input type="password" class="form-input" id="pinInput" maxlength="12" placeholder="••••" autocomplete="off"
+          onkeydown="if(event.key==='Enter')document.getElementById('pinBtn').click()"
+          style="font-size:2rem;letter-spacing:14px;text-align:center;padding:18px;font-weight:900;">
+      </div>
+      <div class="alert alert-danger hidden" id="pinErr" style="margin-top:-8px;margin-bottom:16px;">❌ Wrong PIN. Please try again.</div>
+      <button class="btn btn-primary" id="pinBtn" onclick="verifyPin()">Open Dashboard →</button>
+      <div style="text-align:center;margin-top:20px;">
+        <a href="index.html" style="display:inline-flex;align-items:center;gap:6px;font-size:0.78rem;font-weight:700;color:var(--t3);text-decoration:none;padding:8px 16px;border-radius:var(--r-full);border:1px solid var(--bd2);background:var(--bg-raised);transition:all 0.2s;">⬅ Back to Survey App</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="dashboard" class="hidden">
+    <header class="app-header">
+      <div class="header-branding">
+        <h1 class="header-title"><span class="logo-icon">🛡️</span> Admin Dashboard</h1>
+        <div class="header-subtitle">Census Survey Management</div>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+        <button class="icon-btn" onclick="lockDashboard()" title="Lock">🔒</button>
+      </div>
+    </header>
+
+    <div class="admin-container">
+      <!-- Stats -->
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-val" id="stat-total" style="color:var(--indigo-lt);">0</div>
+          <div class="stat-lbl">Total Surveyors</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" id="stat-pending" style="color:var(--rose-lt);">0</div>
+          <div class="stat-lbl">Pending Approval</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" id="stat-approved" style="color:var(--emerald-lt);">0</div>
+          <div class="stat-lbl">Approved</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" id="stat-surveys" style="color:var(--cyan-lt);">0</div>
+          <div class="stat-lbl">Total Surveys</div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="tabs-bar">
+        <div class="tab-btn active" onclick="switchTab('approvals', this)">👤 Surveyors <span class="pending-badge" id="tab-pending-badge" style="display:none;">0</span></div>
+        <div class="tab-btn" onclick="switchTab('surveys', this)">📋 All Surveys</div>
+      </div>
+
+      <!-- Approvals Section -->
+      <div id="section-approvals">
+        <div class="section-title">👤 Surveyor Management</div>
+        <div id="approvals-list">
+          <div class="empty-state">⏳ Loading surveyors…</div>
+        </div>
+      </div>
+
+      <!-- Surveys Section -->
+      <div id="section-surveys" class="hidden">
+        <div class="section-title">📋 All Survey Submissions</div>
+        <div id="all-surveys-list" style="overflow-x:auto;">
+          <div class="empty-state">⏳ Loading surveys…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="global-toast" class="toast"></div>
+
+  <script src="admin.js"></script>
+  <script>
+    (function() {
+      const t = localStorage.getItem('census-theme') || 'light';
+      document.documentElement.setAttribute('data-theme', t);
+      document.querySelectorAll('.theme-toggle').forEach(btn => {
+        btn.textContent = t === 'dark' ? '☀' : '🌙';
+      });
+    })();
+  </script>
+</body>
+</html>

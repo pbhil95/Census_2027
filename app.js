@@ -8,6 +8,8 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 
 let db = null;
 let currentUser = null;
+let currentProfile = null;
+let recoveryMode = false;
 let currentStep = 1;
 const TOTAL_STEPS = 9;
 
@@ -17,9 +19,11 @@ const IS_CONFIGURED = !SUPABASE_URL.includes('YOUR_PROJECT_ID');
 const ST = {
   loading: document.getElementById('screen-loading'),
   auth: document.getElementById('screen-auth'),
+  wait: document.getElementById('screen-wait'),
   main: document.getElementById('screen-main'),
   success: document.getElementById('screen-success'),
-  records: document.getElementById('screen-records')
+  records: document.getElementById('screen-records'),
+  forceReset: document.getElementById('screen-force-reset')
 };
 
 // ── INIT ──
@@ -47,11 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   setupEventListeners();
-
-  // Handle magic link / confirmation redirect from URL hash
-  handleAuthRedirect();
-
-  checkSession();
+  initAuth();
 
   // Safety net: hide loader after 5s
   setTimeout(() => {
@@ -62,62 +62,143 @@ document.addEventListener('DOMContentLoaded', () => {
   }, 5000);
 });
 
-// ── Handle auth redirect (magic links, email confirmations) ──
-async function handleAuthRedirect() {
-  // Supabase JS v2 automatically processes hash tokens on init,
-  // but we wait a moment then clean the URL so tokens don't linger.
-  if (window.location.hash && window.location.hash.includes('access_token')) {
-    // Give Supabase client a tick to process the session
-    await new Promise(r => setTimeout(r, 500));
-    // Clean URL without reloading
-    if (window.history.replaceState) {
-      window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+// ── AUTH FLOW ──
+async function initAuth() {
+  try {
+    const { data: { session }, error } = await db.auth.getSession();
+    if (error) console.error('getSession error:', error.message);
+
+    if (session) {
+      currentUser = session.user;
+      currentProfile = await loadProfile(currentUser);
     }
+  } catch (err) {
+    console.error('initAuth error:', err.message);
   }
-}
 
-// ── AUTH ──
-async function checkSession() {
-  if (!db) { ST.loading.classList.add('hidden'); showScreen('auth'); return; }
-  const { data: { session }, error } = await db.auth.getSession();
-  if (error || !session) {
-    ST.loading.classList.add('hidden');
-    showScreen('auth');
-  } else {
-    currentUser = session.user;
-    document.getElementById('surveyor-name').textContent = currentUser.email;
-    ST.loading.classList.add('hidden');
-    showScreen('main');
-    updateProgress();
-  }
-}
+  routeUser();
 
-async function login(email, password) {
-  if (!db) return { error: { message: 'Database not initialized' } };
-  const { data, error } = await db.auth.signInWithPassword({ email, password });
-  if (!error && data.user) {
-    currentUser = data.user;
-    document.getElementById('surveyor-name').textContent = currentUser.email;
-    showScreen('main');
-    updateProgress();
-  }
-  return { error };
-}
+  // Listen for auth state changes
+  db.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'INITIAL_SESSION') return;
 
-async function register(email, password, name) {
-  if (!db) return { error: { message: 'Database not initialized' } };
-  const { data, error } = await db.auth.signUp({
-    email, password,
-    options: { data: { full_name: name } }
+    if (event === 'SIGNED_OUT') {
+      currentUser = null;
+      currentProfile = null;
+      recoveryMode = false;
+      stopApprovalWatcher();
+      showScreen('auth');
+    } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+      if (!session) return;
+      currentUser = session.user;
+      currentProfile = await loadProfile(currentUser);
+      routeUser();
+    } else if (event === 'PASSWORD_RECOVERY') {
+      recoveryMode = true;
+      if (session) {
+        currentUser = session.user;
+        currentProfile = await loadProfile(currentUser);
+      }
+      routeUser();
+    }
   });
-  return { error };
 }
 
-async function logout() {
-  if (!db) return;
-  await db.auth.signOut();
-  currentUser = null;
-  showScreen('auth');
+async function loadProfile(user) {
+  try {
+    const { data: profile, error } = await db
+      .from('surveyor_profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      console.error('loadProfile error:', error.message);
+    }
+
+    // If no profile exists, create one with approved: false
+    if (!profile) {
+      const name = user.user_metadata?.full_name || user.user_metadata?.name || user.email.split('@')[0];
+      const { data: newProfile, error: insErr } = await db
+        .from('surveyor_profiles')
+        .insert([{ id: user.id, name, email: user.email }])
+        .select()
+        .single();
+
+      if (insErr) {
+        console.error('createProfile error:', insErr.message);
+        return null;
+      }
+      return newProfile;
+    }
+
+    return profile;
+  } catch (err) {
+    console.error('loadProfile caught:', err.message);
+    return null;
+  }
+}
+
+function routeUser() {
+  ST.loading.classList.add('fade-out');
+  setTimeout(() => ST.loading.classList.add('hidden'), 300);
+
+  if (!currentUser) {
+    stopApprovalWatcher();
+    showScreen('auth');
+  } else if (!currentProfile) {
+    stopApprovalWatcher();
+    document.getElementById('wait-name').textContent = 'Profile Data Missing';
+    const p = document.querySelector('#screen-wait .wait-desc');
+    if (p) p.innerHTML = 'Your profile data could not be found. <b>Please run the SQL setup script in Supabase.</b>';
+    showScreen('wait');
+  } else if (!currentProfile.approved) {
+    document.getElementById('wait-name').textContent = currentProfile.name || currentUser.email;
+    showScreen('wait');
+    startApprovalWatcher();
+  } else if (currentProfile.force_password_reset || recoveryMode) {
+    stopApprovalWatcher();
+    document.getElementById('force-reset-name').textContent = currentProfile.name || currentUser.email;
+    showScreen('forceReset');
+  } else {
+    stopApprovalWatcher();
+    document.getElementById('surveyor-name').textContent = currentProfile.name || currentUser.email;
+    showScreen('main');
+  }
+}
+
+// ── REAL-TIME APPROVAL WATCHER ──
+let _approvalChannel = null;
+
+function startApprovalWatcher() {
+  if (_approvalChannel) return;
+  if (!currentUser) return;
+
+  _approvalChannel = db
+    .channel('approval-watch-' + currentUser.id)
+    .on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'surveyor_profiles',
+      filter: `id=eq.${currentUser.id}`
+    }, (payload) => {
+      if (payload.new && payload.new.approved) {
+        stopApprovalWatcher();
+        currentProfile = payload.new;
+        showToast('✅ Your account has been approved! Welcome!');
+        routeUser();
+      }
+    })
+    .subscribe((status) => {
+      console.log('Approval channel status:', status);
+    });
+}
+
+function stopApprovalWatcher() {
+  if (_approvalChannel) {
+    db.removeChannel(_approvalChannel);
+    _approvalChannel = null;
+  }
 }
 
 // ── SCREEN NAVIGATION ──
@@ -143,7 +224,6 @@ function updateProgress() {
   const pct = (currentStep / TOTAL_STEPS) * 100;
   document.getElementById('progress-fill').style.width = pct + '%';
   document.getElementById('progress-label').textContent = `Step ${currentStep} of ${TOTAL_STEPS}`;
-
   document.getElementById('btn-prev').classList.toggle('hidden', currentStep === 1);
   document.getElementById('btn-next').classList.toggle('hidden', currentStep === TOTAL_STEPS);
   document.getElementById('btn-submit').classList.toggle('hidden', currentStep !== TOTAL_STEPS);
@@ -168,12 +248,10 @@ function validateStep(step) {
     }
   });
 
-  // Mobile number validation
   if (step === TOTAL_STEPS) {
     const mobile = document.getElementById('q34');
     if (mobile && mobile.value.trim()) {
-      const m = mobile.value.trim();
-      if (!/^\d{10}$/.test(m)) {
+      if (!/^\d{10}$/.test(mobile.value.trim())) {
         showToast('⚠️ Mobile number must be exactly 10 digits');
         mobile.style.borderColor = 'var(--rose)';
         setTimeout(() => { mobile.style.borderColor = ''; }, 2000);
@@ -225,7 +303,6 @@ async function handleSubmit(e) {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-sm"></span> Submitting…';
 
-  // Build payload
   const payload = {
     user_id: currentUser.id,
     surveyor_email: currentUser.email,
@@ -298,6 +375,116 @@ function submitAnother() {
   showScreen('main');
 }
 
+// ── FORCE RESET ──
+async function handleForceReset(e) {
+  e.preventDefault();
+  const newPwd = document.getElementById('fr-new-pwd').value;
+  const confirm = document.getElementById('fr-confirm-pwd').value;
+  const err = document.getElementById('fr-err');
+  const btn = document.getElementById('btn-force-reset');
+
+  err.classList.add('hidden');
+  if (newPwd.length < 8) return showError(err, 'Password must be at least 8 characters');
+  if (newPwd !== confirm) return showError(err, 'Passwords do not match');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-sm"></span> Saving…';
+
+  try {
+    const { error: pwdErr } = await db.auth.updateUser({ password: newPwd });
+    if (pwdErr) throw pwdErr;
+
+    const { error: dbErr } = await db
+      .from('surveyor_profiles')
+      .update({ force_password_reset: false })
+      .eq('id', currentUser.id);
+    if (dbErr) throw dbErr;
+
+    if (currentProfile) currentProfile.force_password_reset = false;
+    recoveryMode = false;
+    showToast('✅ Password updated successfully!');
+    routeUser();
+  } catch (ex) {
+    showError(err, ex.message);
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Set New Password →';
+}
+
+// ── CHANGE PASSWORD MODAL ──
+function openChangePwdModal() {
+  document.getElementById('cp-new-pwd').value = '';
+  document.getElementById('cp-confirm-pwd').value = '';
+  document.getElementById('cp-strength-fill').style.width = '0%';
+  document.getElementById('cp-strength-label').textContent = '';
+  document.getElementById('cp-err').classList.add('hidden');
+  document.getElementById('cp-success').classList.add('hidden');
+  document.getElementById('modal-change-pwd').style.display = 'flex';
+}
+
+function closeChangePwdModal() {
+  document.getElementById('modal-change-pwd').style.display = 'none';
+}
+
+async function handleChangePwd(e) {
+  e.preventDefault();
+  const newPwd = document.getElementById('cp-new-pwd').value;
+  const confirm = document.getElementById('cp-confirm-pwd').value;
+  const err = document.getElementById('cp-err');
+  const success = document.getElementById('cp-success');
+  const btn = document.getElementById('btn-change-pwd');
+
+  err.classList.add('hidden');
+  success.classList.add('hidden');
+  if (newPwd.length < 8) return showError(err, 'Password must be at least 8 characters');
+  if (newPwd !== confirm) return showError(err, 'Passwords do not match');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-sm"></span> Updating…';
+
+  try {
+    const { error } = await db.auth.updateUser({ password: newPwd });
+    if (error) throw error;
+    success.textContent = '✅ Password changed successfully!';
+    success.classList.remove('hidden');
+    document.getElementById('cp-new-pwd').value = '';
+    document.getElementById('cp-confirm-pwd').value = '';
+    setTimeout(closeChangePwdModal, 2000);
+  } catch (ex) {
+    showError(err, ex.message);
+  }
+
+  btn.disabled = false;
+  btn.textContent = '🔒 Update Password';
+}
+
+// ── PASSWORD STRENGTH ──
+function updatePwdStrength(pwd, fillId, labelId) {
+  const fill = document.getElementById(fillId);
+  const label = document.getElementById(labelId);
+  if (!fill || !label) return;
+
+  let score = 0;
+  if (pwd.length >= 8) score++;
+  if (/[A-Z]/.test(pwd)) score++;
+  if (/[0-9]/.test(pwd)) score++;
+  if (/[^A-Za-z0-9]/.test(pwd)) score++;
+
+  const levels = [
+    { pct: '0%', color: 'transparent', text: '' },
+    { pct: '25%', color: 'var(--rose)', text: 'Weak' },
+    { pct: '50%', color: 'var(--amber)', text: 'Fair' },
+    { pct: '75%', color: 'var(--cyan)', text: 'Good' },
+    { pct: '100%', color: 'var(--emerald)', text: 'Strong ✓' },
+  ];
+  const lv = levels[score];
+  fill.style.width = lv.pct;
+  fill.style.background = lv.color;
+  label.textContent = lv.text;
+  label.style.color = lv.color;
+}
+
 // ── RECORDS ──
 async function openRecords() {
   showScreen('records');
@@ -313,7 +500,7 @@ async function openRecords() {
     const { data, error } = await db
       .from('census_surveys')
       .select('*')
-      .eq('surveyor_email', currentUser.email)
+      .eq('user_id', currentUser.id)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -371,7 +558,19 @@ function setupEventListeners() {
 
   // Logout
   document.querySelectorAll('.btn-logout').forEach(btn => {
-    btn.addEventListener('click', () => logout());
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      ST.loading.classList.remove('fade-out', 'hidden');
+      try { await db.auth.signOut(); } catch (e) {}
+      currentUser = null;
+      currentProfile = null;
+      recoveryMode = false;
+      stopApprovalWatcher();
+      showScreen('auth');
+      ST.loading.classList.add('fade-out');
+      setTimeout(() => ST.loading.classList.add('hidden'), 300);
+      btn.disabled = false;
+    });
   });
 
   // Login
@@ -384,13 +583,20 @@ function setupEventListeners() {
     err.classList.add('hidden');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-sm"></span> Signing In…';
-    const { error } = await login(email, pwd);
-    if (error) {
+
+    try {
+      const { data, error } = await db.auth.signInWithPassword({ email, password: pwd });
+      if (error) throw error;
+      currentUser = data.user;
+      currentProfile = await loadProfile(currentUser);
+      routeUser();
+    } catch (error) {
       err.textContent = error.message;
       err.classList.remove('hidden');
-      btn.disabled = false;
-      btn.textContent = 'Sign In →';
     }
+
+    btn.disabled = false;
+    btn.textContent = 'Sign In →';
   });
 
   // Register
@@ -409,14 +615,23 @@ function setupEventListeners() {
 
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-sm"></span> Creating…';
-    const { error } = await register(email, pwd, name);
-    if (error) {
+
+    try {
+      const { data, error } = await db.auth.signUp({
+        email, password,
+        options: { data: { full_name: name, name } }
+      });
+      if (error) throw error;
+
+      // Auto-create profile and show wait screen
+      if (data.user) {
+        currentUser = data.user;
+        currentProfile = await loadProfile(currentUser);
+        showToast('✅ Account created! Waiting for admin approval.');
+        routeUser();
+      }
+    } catch (error) {
       showError(err, error.message);
-      btn.disabled = false;
-      btn.textContent = 'Create Account →';
-    } else {
-      showToast('✅ Account created! Please check your email to verify.');
-      switchAuthTab('login');
       btn.disabled = false;
       btn.textContent = 'Create Account →';
     }
@@ -425,7 +640,57 @@ function setupEventListeners() {
   // Survey form
   document.getElementById('survey-form').addEventListener('submit', handleSubmit);
 
-  // Enter key on inputs should not submit, only buttons
+  // Refresh status
+  document.getElementById('btn-refresh-status')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-refresh-status');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-sm"></span> Checking…';
+
+    try {
+      const { data: row } = await db
+        .from('surveyor_profiles')
+        .select('*')
+        .eq('id', currentUser.id)
+        .single();
+
+      if (row && row.approved) {
+        currentProfile = row;
+        showToast('✅ Account approved! Redirecting…');
+        routeUser();
+      } else {
+        const desc = document.querySelector('#screen-wait .wait-desc');
+        if (desc) {
+          desc.style.color = 'var(--rose-lt)';
+          desc.textContent = 'Still pending approval. Try again later.';
+          setTimeout(() => {
+            desc.style.color = '';
+            desc.textContent = 'Your account is created. An administrator needs to approve your profile before you can submit survey records.';
+          }, 3000);
+        }
+      }
+    } catch (e) {
+      console.error('Check status error:', e);
+    }
+
+    btn.disabled = false;
+    btn.textContent = '🔄 Check Status';
+  });
+
+  // Force reset
+  document.getElementById('form-force-reset')?.addEventListener('submit', handleForceReset);
+
+  // Change pwd
+  document.getElementById('form-change-pwd')?.addEventListener('submit', handleChangePwd);
+
+  // Pwd strength listeners
+  document.getElementById('fr-new-pwd')?.addEventListener('input', (e) => {
+    updatePwdStrength(e.target.value, 'fr-strength-fill', 'fr-strength-label');
+  });
+  document.getElementById('cp-new-pwd')?.addEventListener('input', (e) => {
+    updatePwdStrength(e.target.value, 'cp-strength-fill', 'cp-strength-label');
+  });
+
+  // Enter key on inputs
   document.querySelectorAll('.form-input, .form-select').forEach(el => {
     el.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {

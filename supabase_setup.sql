@@ -2,15 +2,89 @@
 --  Census Survey — Supabase Database Schema
 -- ═══════════════════════════════════════════════════════════
 
--- Enable RLS
-alter table if exists census_surveys force row level security;
+-- ═══════════════════════════════════════════════════════════
+--  1. Surveyor Profiles (Admin Approval System)
+-- ═══════════════════════════════════════════════════════════
+drop table if exists surveyor_profiles cascade;
 
--- Drop if exists (for fresh setup)
+create table surveyor_profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  created_at timestamptz default now(),
+  name text not null,
+  email text not null,
+  approved boolean default false,
+  force_password_reset boolean default false
+);
+
+-- Enable RLS
+alter table surveyor_profiles enable row level security;
+
+-- Users can read their own profile
+create policy "Users can read own profile"
+  on surveyor_profiles
+  for select
+  to authenticated
+  using (id = auth.uid());
+
+-- Users can update their own profile (limited fields)
+create policy "Users can update own profile"
+  on surveyor_profiles
+  for update
+  to authenticated
+  using (id = auth.uid());
+
+-- Insert on signup (trigger will handle this)
+create policy "Allow profile inserts"
+  on surveyor_profiles
+  for insert
+  to authenticated
+  with check (true);
+
+-- Allow admin read access (dashboard PIN protected, no service key needed)
+create policy "Allow admin select all profiles"
+  on surveyor_profiles
+  for select
+  to anon
+  using (true);
+
+-- Allow admin update access
+create policy "Allow admin update all profiles"
+  on surveyor_profiles
+  for update
+  to anon
+  using (true);
+
+-- Indexes
+create index idx_surveyor_profiles_approved on surveyor_profiles(approved);
+create index idx_surveyor_profiles_email on surveyor_profiles(email);
+
+-- ═══════════════════════════════════════════════════════════
+--  2. Auto-create profile on signup (Trigger)
+-- ═══════════════════════════════════════════════════════════
+create or replace function public.handle_new_surveyor()
+returns trigger as $$
+begin
+  insert into public.surveyor_profiles (id, name, email)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
+    new.email
+  );
+  return new;
+end;
+$$ language plpgsql security definer;
+
+-- Attach trigger to auth.users
+drop trigger if exists on_auth_user_created_surveyor on auth.users;
+create trigger on_auth_user_created_surveyor
+  after insert on auth.users
+  for each row execute function public.handle_new_surveyor();
+
+-- ═══════════════════════════════════════════════════════════
+--  3. Census Surveys Table
+-- ═══════════════════════════════════════════════════════════
 drop table if exists census_surveys cascade;
 
--- ═══════════════════════════════════════════════════════════
---  Main Survey Table
--- ═══════════════════════════════════════════════════════════
 create table census_surveys (
   id uuid default gen_random_uuid() primary key,
   created_at timestamptz default now(),
@@ -73,51 +147,41 @@ create table census_surveys (
 -- Enable RLS
 alter table census_surveys enable row level security;
 
--- ═══════════════════════════════════════════════════════════
---  Row Level Security Policies
--- ═══════════════════════════════════════════════════════════
-
--- Allow authenticated users to insert records
-create policy "Users can insert their own surveys"
+-- Insert: any authenticated user
+create policy "Users can insert surveys"
   on census_surveys
   for insert
   to authenticated
   with check (auth.uid() is not null);
 
--- Allow users to read only their own records
-create policy "Users can view their own surveys"
+-- Select: users see only their own
+create policy "Users can view own surveys"
   on census_surveys
   for select
   to authenticated
   using (user_id = auth.uid());
 
--- Allow users to update only their own records
-create policy "Users can update their own surveys"
+-- Update: users update only their own
+create policy "Users can update own surveys"
   on census_surveys
   for update
   to authenticated
   using (user_id = auth.uid());
 
--- Allow users to delete only their own records
-create policy "Users can delete their own surveys"
+-- Delete: users delete only their own
+create policy "Users can delete own surveys"
   on census_surveys
   for delete
   to authenticated
   using (user_id = auth.uid());
 
--- ═══════════════════════════════════════════════════════════
---  Indexes for performance
--- ═══════════════════════════════════════════════════════════
-create index idx_census_surveyor on census_surveys(surveyor_email);
-create index idx_census_created on census_surveys(created_at desc);
+-- Admin can read all surveys (dashboard access)
+create policy "Admin can view all surveys"
+  on census_surveys
+  for select
+  to anon
+  using (true);
 
--- ═══════════════════════════════════════════════════════════
---  Optional: Admin view (uncomment if you have an admin role)
--- ═══════════════════════════════════════════════════════════
--- create policy "Admins can view all surveys"
---   on census_surveys
---   for select
---   to authenticated
---   using (exists (
---     select 1 from auth.users where auth.users.id = auth.uid() and auth.users.raw_user_meta_data->>'role' = 'admin'
---   ));
+-- Indexes
+create index idx_census_user_id on census_surveys(user_id);
+create index idx_census_created on census_surveys(created_at desc);
