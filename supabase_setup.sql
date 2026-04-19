@@ -103,6 +103,9 @@ create table census_surveys (
 
   -- Step 3: House Usage & Condition
   q7_house_usage text,
+  q7a_lock_hai text,
+  q7b_sansthagat_hai text,
+  q7b_house_usage_detail text,
   q8_house_condition text,
 
   -- Step 4: Family Details

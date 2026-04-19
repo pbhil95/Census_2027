@@ -281,6 +281,9 @@ const QUESTION_LABELS = [
   { key: 'q5_wall_material', label: 'Q5. Wall Material' },
   { key: 'q6_roof_material', label: 'Q6. Roof Material' },
   { key: 'q7_house_usage', label: 'Q7. House Usage' },
+  { key: 'q7a_lock_hai', label: 'Q7a. Lock hai (House Locked)' },
+  { key: 'q7b_sansthagat_hai', label: 'Q7b. Sansthagat hai (Institutional)' },
+  { key: 'q7b_house_usage_detail', label: 'Q7b. House Usage Detail' },
   { key: 'q8_house_condition', label: 'Q8. House Condition' },
   { key: 'q9_family_serial', label: 'Q9. Family Serial No.' },
   { key: 'q10_persons_count', label: 'Q10. No. of Persons' },
@@ -325,8 +328,7 @@ async function openViewModal(recordId) {
 
   html += '<div style="display:grid;grid-template-columns:1fr;gap:10px;">';
   QUESTION_LABELS.forEach(q => {
-    const val = record[q.key];
-    const displayVal = val !== null && val !== undefined && val !== '' ? String(val) : '—';
+    const displayVal = getDisplayValue(record, q.key);
     html += `<div style="display:flex;gap:12px;padding:10px 12px;background:var(--bg-raised);border-radius:var(--r-md);border:1px solid var(--bd);">
       <div style="font-size:0.65rem;color:var(--t3);font-weight:700;text-transform:uppercase;letter-spacing:1px;min-width:140px;flex-shrink:0;padding-top:2px;">${q.label}</div>
       <div style="font-size:0.88rem;font-weight:600;color:var(--t1);word-break:break-word;">${escapeHtml(displayVal)}</div>
@@ -357,7 +359,7 @@ function exportAdminExcel() {
       i + 1,
       dt.toLocaleDateString('en-IN') + ' ' + dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
       r.surveyor_email || '',
-      ...QUESTION_LABELS.map(q => r[q.key] ?? '')
+      ...QUESTION_LABELS.map(q => getDisplayValue(r, q.key))
     ];
   });
 
@@ -398,8 +400,7 @@ async function exportAdminPDF() {
 
     let rowsHtml = '';
     QUESTION_LABELS.forEach((q, idx) => {
-      const val = record[q.key] !== null && record[q.key] !== undefined && record[q.key] !== ''
-        ? String(record[q.key]) : '—';
+      const val = getDisplayValue(record, q.key);
       const bg = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
       rowsHtml += `
         <tr style="background:${bg};">
@@ -474,6 +475,17 @@ function updateStats() {
 }
 
 // ── UTILS ──
+// Helper: returns display value for exports, showing "Not applicable" for skipped fields
+function getDisplayValue(record, key) {
+  const val = record[key];
+  if (val !== null && val !== undefined && val !== '') return String(val);
+  const sansthagatKeys = ['q12_gender','q13_category','q14_ownership','q15_rooms_count','q16_married_couples','q17_water_source','q18_water_availability','q19_light_source','q20_toilet_facility','q21_toilet_type','q22_drainage','q23_bathing_facility','q24_kitchen_gas','q25_cooking_fuel','q26_radio','q27_tv','q28_internet','q29_laptop','q30_phone','q31_cycle_scooter','q32_car','q33_main_grain','q34_mobile_number'];
+  if (record.q7b_sansthagat_hai && sansthagatKeys.includes(key)) {
+    return 'लागू नहीं / Not applicable';
+  }
+  return '—';
+}
+
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;

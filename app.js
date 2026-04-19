@@ -272,6 +272,7 @@ function showWizardStep(step) {
   });
   currentStep = step;
   updateProgress();
+  toggleQ7Dependencies();
   window.scrollTo(0, 0);
 }
 
@@ -357,7 +358,7 @@ function validationMessageForInput(input) {
   if (input.required && !value) return `${label} is required.`;
   if (!value) return '';
 
-  if (input.id === 'q34' && !/^[6-9]\d{9}$/.test(value)) {
+  if (input.id === 'q34' && value && !/^[6-9]\d{9}$/.test(value)) {
     return 'Enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.';
   }
 
@@ -421,9 +422,23 @@ function clearFormValidation() {
   });
 }
 
+function isHiddenField(el) {
+  return el?.closest('.hidden') !== null;
+}
+
 function validateStep(step, options = {}) {
   const container = document.querySelector(`.step[data-step="${step}"]`);
   if (!container) return true;
+
+  // Skip steps 4-8 if house is locked
+  if (step >= 4 && step <= 8 && document.getElementById('q7a_lock')?.checked) {
+    return true;
+  }
+
+  // Skip steps 5-8 if sansthagat hai (institutional)
+  if (step >= 5 && step <= 8 && document.getElementById('q7b_sansthagat')?.checked) {
+    return true;
+  }
 
   const requiredInputs = container.querySelectorAll('input[required]:not([type="radio"]), select[required]');
   const requiredRadioNames = [...new Set(
@@ -432,12 +447,21 @@ function validateStep(step, options = {}) {
   let valid = true;
 
   requiredInputs.forEach(input => {
+    if (isHiddenField(input)) return;
     if (!validateInput(input, true)) valid = false;
   });
 
   requiredRadioNames.forEach(name => {
+    const firstRadio = container.querySelector(`input[type="radio"][name="${escapeSelector(name)}"]`);
+    if (isHiddenField(firstRadio)) return;
     if (!validateRadioGroup(name, container, true)) valid = false;
   });
+
+  // Validate q7b_info if visible
+  if (step === 3 && !document.getElementById('q7b-info-group')?.classList.contains('hidden')) {
+    const q7cInput = document.getElementById('q7b_info');
+    if (q7cInput && !validateInput(q7cInput, true)) valid = false;
+  }
 
   if (!valid && options.focus !== false) focusFirstInvalid(container);
 
@@ -446,6 +470,8 @@ function validateStep(step, options = {}) {
 
 function getFirstInvalidSurveyStep() {
   for (let step = 1; step <= TOTAL_STEPS; step++) {
+    if (step >= 4 && step <= 8 && document.getElementById('q7a_lock')?.checked) continue;
+    if (step >= 5 && step <= 9 && document.getElementById('q7b_sansthagat')?.checked) continue;
     if (!validateStep(step, { focus: false })) return step;
   }
   return null;
@@ -456,12 +482,28 @@ function nextStep() {
     showToast('Please complete the highlighted fields.');
     return;
   }
+  if (currentStep === 3 && document.getElementById('q7a_lock')?.checked) {
+    showWizardStep(9);
+    return;
+  }
+  if (currentStep === 4 && document.getElementById('q7b_sansthagat')?.checked) {
+    showWizardStep(9);
+    return;
+  }
   if (currentStep < TOTAL_STEPS) {
     showWizardStep(currentStep + 1);
   }
 }
 
 function prevStep() {
+  if (currentStep === 9 && document.getElementById('q7a_lock')?.checked) {
+    showWizardStep(3);
+    return;
+  }
+  if (currentStep === 9 && document.getElementById('q7b_sansthagat')?.checked) {
+    showWizardStep(4);
+    return;
+  }
   if (currentStep > 1) {
     showWizardStep(currentStep - 1);
   }
@@ -497,6 +539,9 @@ async function handleSubmit(e) {
     q5_wall_material: document.querySelector('input[name="q5"]:checked')?.value || '',
     q6_roof_material: document.querySelector('input[name="q6"]:checked')?.value || '',
     q7_house_usage: document.querySelector('input[name="q7"]:checked')?.value || '',
+    q7a_lock_hai: document.getElementById('q7a_lock')?.checked ? 'लॉक है' : '',
+    q7b_sansthagat_hai: document.getElementById('q7b_sansthagat')?.checked ? 'संस्थागत है' : '',
+    q7b_house_usage_detail: document.getElementById('q7b_info')?.value.trim() || '',
     q8_house_condition: document.querySelector('input[name="q8"]:checked')?.value || '',
     q9_family_serial: document.getElementById('q9').value.trim(),
     q10_persons_count: parseInt(document.getElementById('q10').value, 10) || null,
@@ -573,6 +618,7 @@ async function handleSubmit(e) {
 function submitAnother() {
   document.getElementById('survey-form').reset();
   clearFormValidation();
+  toggleQ7Dependencies();
   document.querySelectorAll('.step').forEach((s, i) => {
     s.classList.toggle('hidden', i !== 0);
   });
@@ -789,6 +835,9 @@ const QUESTION_LABELS = [
   { key: 'q5_wall_material', label: 'Q5. Wall Material' },
   { key: 'q6_roof_material', label: 'Q6. Roof Material' },
   { key: 'q7_house_usage', label: 'Q7. House Usage' },
+  { key: 'q7a_lock_hai', label: 'Q7a. Lock hai (House Locked)' },
+  { key: 'q7b_sansthagat_hai', label: 'Q7b. Sansthagat hai (Institutional)' },
+  { key: 'q7b_house_usage_detail', label: 'Q7b. House Usage Detail' },
   { key: 'q8_house_condition', label: 'Q8. House Condition' },
   { key: 'q9_family_serial', label: 'Q9. Family Serial No.' },
   { key: 'q10_persons_count', label: 'Q10. No. of Persons' },
@@ -1040,6 +1089,160 @@ function setupSurveyValidation() {
       validateRadioGroup(radio.name, container, true);
     });
   });
+
+  // Checkbox listeners for Q7a/Q7b
+  const lockChk = document.getElementById('q7a_lock');
+  const sanstChk = document.getElementById('q7b_sansthagat');
+  if (lockChk) {
+    lockChk.addEventListener('change', () => {
+      if (lockChk.checked && sanstChk) {
+        sanstChk.checked = false;
+      }
+      toggleQ7Dependencies();
+    });
+  }
+  if (sanstChk) {
+    sanstChk.addEventListener('change', () => {
+      if (sanstChk.checked && lockChk) {
+        lockChk.checked = false;
+      }
+      toggleQ7Dependencies();
+    });
+  }
+
+  // Q7 radio change listener
+  document.querySelectorAll('input[name="q7"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      toggleQ7Dependencies();
+    });
+  });
+}
+
+function toggleQ7Dependencies() {
+  const q7Selected = document.querySelector('input[name="q7"]:checked');
+  const q7Value = q7Selected?.value;
+  const lockChk = document.getElementById('q7a_lock');
+  const sanstChk = document.getElementById('q7b_sansthagat');
+  const q7cGroup = document.getElementById('q7b-info-group');
+  const q7cInput = document.getElementById('q7b_info');
+  const q8Group = document.getElementById('q8-group');
+  const q33Group = document.getElementById('q33-group');
+  const q34Group = document.getElementById('q34-group');
+
+  // Disable/enable checkboxes based on Q7 selection
+  if (lockChk) {
+    const lockCard = lockChk.closest('.checkbox-card');
+    if (q7Value && q7Value !== 'आवास' && q7Value !== 'आवास-सह-अन्य उपयोग') {
+      lockChk.checked = false;
+      lockCard?.classList.add('disabled');
+    } else {
+      lockCard?.classList.remove('disabled');
+    }
+  }
+  if (sanstChk) {
+    const sanstCard = sanstChk.closest('.checkbox-card');
+    if (q7Value === 'आवास') {
+      sanstChk.checked = false;
+      sanstCard?.classList.add('disabled');
+    } else {
+      sanstCard?.classList.remove('disabled');
+    }
+  }
+
+  // Show/hide Q7c based on Q7 selection
+  if (q7cGroup && q7cInput) {
+    if (q7Value && q7Value !== 'आवास') {
+      q7cGroup.classList.remove('hidden');
+      q7cInput.required = true;
+    } else {
+      q7cGroup.classList.add('hidden');
+      q7cInput.required = false;
+      q7cInput.value = '';
+      clearFieldError(q7cInput);
+    }
+  }
+
+  // Show/hide Q8 based on lock hai
+  if (q8Group) {
+    if (lockChk?.checked) {
+      q8Group.classList.add('hidden');
+      // Clear Q8 selection
+      document.querySelectorAll('input[name="q8"]').forEach(r => {
+        r.checked = false;
+        clearFieldError(r);
+      });
+    } else {
+      q8Group.classList.remove('hidden');
+    }
+  }
+
+  // Show/hide Q12-Q13 based on sansthagat hai
+  const q12Group = document.getElementById('q12-group');
+  const q13Group = document.getElementById('q13-group');
+  if (q12Group) {
+    if (sanstChk?.checked) {
+      q12Group.classList.add('hidden');
+      document.querySelectorAll('input[name="q12"]').forEach(r => {
+        r.checked = false;
+        clearFieldError(r);
+      });
+    } else {
+      q12Group.classList.remove('hidden');
+    }
+  }
+  if (q13Group) {
+    if (sanstChk?.checked) {
+      q13Group.classList.add('hidden');
+      document.querySelectorAll('input[name="q13"]').forEach(r => {
+        r.checked = false;
+        clearFieldError(r);
+      });
+    } else {
+      q13Group.classList.remove('hidden');
+    }
+  }
+
+  // Show/hide Q33 based on lock hai or sansthagat hai
+  if (q33Group) {
+    if (lockChk?.checked || sanstChk?.checked) {
+      q33Group.classList.add('hidden');
+      document.querySelectorAll('input[name="q33"]').forEach(r => {
+        r.checked = false;
+        clearFieldError(r);
+      });
+    } else {
+      q33Group.classList.remove('hidden');
+    }
+  }
+
+  // Show/hide Q34 based on sansthagat hai
+  if (q34Group) {
+    if (sanstChk?.checked) {
+      q34Group.classList.add('hidden');
+      document.getElementById('q34').value = '';
+      clearFieldError(document.getElementById('q34'));
+    } else {
+      q34Group.classList.remove('hidden');
+    }
+  }
+
+  // Show/hide step 9 card/header based on sansthagat hai or lock hai
+  const step9Card = document.getElementById('step9-card');
+  const step9Header = step9Card?.querySelector('.card-header');
+  if (step9Header) {
+    if (sanstChk?.checked || lockChk?.checked) {
+      step9Header.classList.add('hidden');
+    } else {
+      step9Header.classList.remove('hidden');
+    }
+  }
+  if (step9Card) {
+    if (sanstChk?.checked) {
+      step9Card.classList.add('hidden');
+    } else {
+      step9Card.classList.remove('hidden');
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1060,8 +1263,7 @@ function openUserViewModal(recordId) {
 
   html += '<div style="display:grid;grid-template-columns:1fr;gap:10px;">';
   QUESTION_LABELS.forEach(q => {
-    const val = record[q.key];
-    const displayVal = val !== null && val !== undefined && val !== '' ? String(val) : '—';
+    const displayVal = getDisplayValue(record, q.key);
     html += `<div style="display:flex;gap:12px;padding:10px 12px;background:var(--bg-raised);border-radius:var(--r-md);border:1px solid var(--bd);">
       <div style="font-size:0.65rem;color:var(--t3);font-weight:700;text-transform:uppercase;letter-spacing:1px;min-width:140px;flex-shrink:0;padding-top:2px;">${q.label}</div>
       <div style="font-size:0.88rem;font-weight:600;color:var(--t1);word-break:break-word;">${escapeHtml(displayVal)}</div>
@@ -1114,11 +1316,19 @@ function loadRecordIntoWizard(record) {
     q15: 'q15_rooms_count',
     q16: 'q16_married_couples',
     q34: 'q34_mobile_number',
+    q7b_info: 'q7b_house_usage_detail',
   };
   Object.entries(textMap).forEach(([id, col]) => {
     const el = document.getElementById(id);
     if (el) el.value = record[col] ?? '';
   });
+
+  // Load checkboxes
+  const lockChk = document.getElementById('q7a_lock');
+  if (lockChk) lockChk.checked = !!record.q7a_lock_hai;
+  const sanstChk = document.getElementById('q7b_sansthagat');
+  if (sanstChk) sanstChk.checked = !!record.q7b_sansthagat_hai;
+  toggleQ7Dependencies();
 
   const radioMap = {
     q4: 'q4_floor_material',
@@ -1160,6 +1370,7 @@ function cancelEdit() {
   _editingRecordId = null;
   document.getElementById('survey-form').reset();
   clearFormValidation();
+  toggleQ7Dependencies();
   document.querySelectorAll('.step').forEach((s, i) => s.classList.toggle('hidden', i !== 0));
   currentStep = 1;
   updateProgress();
@@ -1181,7 +1392,7 @@ function exportMyExcel() {
     return [
       i + 1,
       dt.toLocaleDateString('en-IN') + ' ' + dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-      ...QUESTION_LABELS.map(q => r[q.key] ?? '')
+      ...QUESTION_LABELS.map(q => getDisplayValue(r, q.key))
     ];
   });
 
@@ -1229,7 +1440,7 @@ async function exportMyPDF() {
 
     let rowsHtml = '';
     QUESTION_LABELS.forEach((q, idx) => {
-      const val = record[q.key] !== null && record[q.key] !== undefined ? String(record[q.key]) : '—';
+      const val = getDisplayValue(record, q.key);
       const bg = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
       rowsHtml += `
         <tr style="background:${bg};">
@@ -1279,6 +1490,18 @@ async function exportMyPDF() {
   const name = currentUser?.email?.split('@')[0] || 'Surveyor';
   pdf.save(`Census_Reports_${name}_${from}_to_${to}.pdf`);
   showToast('✅ PDF exported successfully!');
+}
+
+// Helper: returns display value for exports, showing "Not applicable" for skipped fields
+function getDisplayValue(record, key) {
+  const val = record[key];
+  if (val !== null && val !== undefined && val !== '') return String(val);
+  // If sansthagat hai is checked, Q12-Q34 are not applicable
+  const sansthagatKeys = ['q12_gender','q13_category','q14_ownership','q15_rooms_count','q16_married_couples','q17_water_source','q18_water_availability','q19_light_source','q20_toilet_facility','q21_toilet_type','q22_drainage','q23_bathing_facility','q24_kitchen_gas','q25_cooking_fuel','q26_radio','q27_tv','q28_internet','q29_laptop','q30_phone','q31_cycle_scooter','q32_car','q33_main_grain','q34_mobile_number'];
+  if (record.q7b_sansthagat_hai && sansthagatKeys.includes(key)) {
+    return 'लागू नहीं / Not applicable';
+  }
+  return '—';
 }
 
 function showError(el, msg) {
