@@ -573,9 +573,10 @@ async function handleSubmit(e) {
     q34_mobile_number: document.getElementById('q34').value.trim(),
   };
 
-  // For new enumerator-submitted surveys, set the user_id
+  // For new enumerator-submitted surveys, set the user_id and link_code
   if (!_editingRecordId) {
     payload.user_id = currentUser.id;
+    payload.enumerator_link_code = currentProfile?.link_code || '';
   }
 
   // When editing a citizen survey, preserve ownership fields so it stays a citizen survey
@@ -828,8 +829,8 @@ async function openRecords() {
 }
 
 function generateShareLink() {
-  if (!currentUser) return;
-  const link = window.location.origin + window.location.pathname.replace('index.html', '') + 'survey.html?ref=' + currentUser.id;
+  if (!currentUser || !currentProfile?.link_code) return;
+  const link = window.location.origin + window.location.pathname.replace('index.html', '') + 'survey.html?ref=' + currentProfile.link_code;
   const input = document.getElementById('share-link');
   if (input) input.value = link;
 
@@ -869,7 +870,8 @@ async function loadMyRecords(from, to) {
   }
 
   try {
-    let query = db.from('census_surveys').select('*').or(`user_id.eq.${currentUser.id},assigned_enumerator_id.eq.${currentUser.id}`).order('created_at', { ascending: false });
+    const linkCode = currentProfile?.link_code || '';
+    let query = db.from('census_surveys').select('*').or(`user_id.eq.${currentUser.id},assigned_enumerator_id.eq.${currentUser.id},enumerator_link_code.eq.${linkCode}`).order('created_at', { ascending: false });
     if (from) query = query.gte('created_at', from + 'T00:00:00+05:30'); // IST offset
     if (to) query = query.lte('created_at', to + 'T23:59:59+05:30');     // IST offset
 

@@ -122,6 +122,11 @@ function renderSurveyors() {
           <div class="surveyor-name">${escapeHtml(p.name || 'Unknown')}</div>
           <div class="surveyor-email">${escapeHtml(p.email)}</div>
           <div class="surveyor-date">Registered: ${date}</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap;">
+            <span style="font-size:0.72rem;color:var(--t3);font-weight:600;background:var(--bg-raised);border:1px solid var(--bd2);padding:3px 10px;border-radius:var(--r-full);">🔗 ${escapeHtml(p.link_code || '—')}</span>
+            <button class="action-btn" style="padding:3px 10px;font-size:0.7rem;" onclick="navigator.clipboard.writeText('${escapeHtml(p.link_code || '')}');showToast('📋 Link code copied!')">Copy</button>
+            <button class="action-btn" style="padding:3px 10px;font-size:0.7rem;background:var(--amber-sub);color:var(--amber-lt);border-color:var(--amber-border);" onclick="editLinkCode('${p.id}', '${escapeHtml(p.link_code || '')}')">📝 Edit</button>
+          </div>
           <div class="send-email-wrap">
             <input type="checkbox" id="email-chk-${p.id}" ${isApproved ? '' : 'checked'}>
             <label for="email-chk-${p.id}">📧 Send approval email</label>
@@ -192,6 +197,33 @@ async function resetPassword(id, btn) {
   }
   btn.disabled = false;
   btn.textContent = '🔑 Reset Pwd';
+}
+
+async function editLinkCode(id, currentCode) {
+  const newCode = prompt(`Enter new link code for this surveyor.\n\nCurrent code: ${currentCode}\n\nIf this user re-registered after deletion, type their old link code here to restore it.\n\nMust be unique (e.g. a1b2c3d4).`);
+  if (!newCode || newCode.trim() === currentCode) return;
+
+  const trimmed = newCode.trim().toLowerCase();
+  if (!/^[a-z0-9]{8}$/.test(trimmed)) {
+    showToast('❌ Link code must be exactly 8 letters/numbers.');
+    return;
+  }
+
+  try {
+    const { error } = await db.from('surveyor_profiles').update({ link_code: trimmed }).eq('id', id);
+    if (error) {
+      if (error.message.includes('unique') || error.code === '23505') {
+        showToast('❌ That link code is already in use by another surveyor.');
+      } else {
+        showToast('❌ Error: ' + error.message);
+      }
+      return;
+    }
+    showToast('✅ Link code updated successfully!');
+    loadSurveyors();
+  } catch (e) {
+    showToast('❌ Error: ' + e.message);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -13,7 +13,8 @@ create table surveyor_profiles (
   name text not null,
   email text not null,
   approved boolean default false,
-  force_password_reset boolean default false
+  force_password_reset boolean default false,
+  link_code text unique not null default encode(gen_random_bytes(4), 'hex')
 );
 
 -- Enable RLS
@@ -57,6 +58,7 @@ create policy "Allow admin update all profiles"
 -- Indexes
 create index idx_surveyor_profiles_approved on surveyor_profiles(approved);
 create index idx_surveyor_profiles_email on surveyor_profiles(email);
+create index idx_surveyor_profiles_link_code on surveyor_profiles(link_code);
 
 -- ═══════════════════════════════════════════════════════════
 --  2. Auto-create profile on signup (Trigger)
@@ -92,7 +94,8 @@ create table census_surveys (
   surveyor_email text,
 
   -- Citizen self-survey tracking
-  assigned_enumerator_id uuid references surveyor_profiles(id) on delete set null,
+  assigned_enumerator_id uuid,  -- no FK: link must work even if enumerator profile is deleted
+  enumerator_link_code text,    -- permanent code used in shareable URL
   status text default 'approved' check (status in ('pending', 'approved', 'rejected')),
   citizen_name text,
   citizen_mobile text,
@@ -208,5 +211,6 @@ create policy "Admin can update all surveys"
 -- Indexes
 create index idx_census_user_id on census_surveys(user_id);
 create index idx_census_assigned_enum on census_surveys(assigned_enumerator_id);
+create index idx_census_link_code on census_surveys(enumerator_link_code);
 create index idx_census_status on census_surveys(status);
 create index idx_census_created on census_surveys(created_at desc);

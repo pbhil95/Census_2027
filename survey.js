@@ -6,6 +6,7 @@ const SUPABASE_URL = 'https://dvmhgzsxdidrvztmfrcq.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR2bWhnenN4ZGlkcnZ6dG1mcmNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY1MTQ4MTAsImV4cCI6MjA5MjA5MDgxMH0.Z2CgTRQOEHS9GtQLcbW6bNjnGDYhCg-TwApRVu3IoLo';
 
 let db = null;
+let enumeratorLinkCode = null;
 let enumeratorId = null;
 let enumeratorName = null;
 let currentStep = 1;
@@ -30,9 +31,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   const params = new URLSearchParams(window.location.search);
-  enumeratorId = params.get('ref');
+  enumeratorLinkCode = params.get('ref');
 
-  if (!enumeratorId) {
+  if (!enumeratorLinkCode) {
     showScreen('error');
     return;
   }
@@ -48,25 +49,63 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function validateEnumerator() {
+  if (!enumeratorLinkCode) return false;
+
   try {
+    // Try lookup by link_code first (new format)
     const { data, error } = await db
       .from('surveyor_profiles')
-      .select('name, email, approved')
-      .eq('id', enumeratorId)
+      .select('id, name, email, approved, link_code')
+      .eq('link_code', enumeratorLinkCode)
       .single();
 
-    if (error || !data || !data.approved) {
-      console.error('Enumerator validation failed:', error);
-      return false;
+    if (data) {
+      enumeratorId = data.id;
+      enumeratorName = data.name || data.email || 'Unknown Enumerator';
+      const badge = document.getElementById('enum-badge');
+      if (badge) {
+        badge.textContent = data.approved
+          ? `👤 Enumerator: ${enumeratorName}`
+          : `👤 Enumerator: ${enumeratorName} (Pending Approval)`;
+      }
+      return true;
     }
 
-    enumeratorName = data.name || data.email;
+    // Fallback: try lookup by UUID for backward compatibility with old links
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(enumeratorLinkCode)) {
+      const { data: data2, error: error2 } = await db
+        .from('surveyor_profiles')
+        .select('id, name, email, approved')
+        .eq('id', enumeratorLinkCode)
+        .single();
+
+      if (data2) {
+        enumeratorId = data2.id;
+        enumeratorName = data2.name || data2.email || 'Unknown Enumerator';
+        const badge = document.getElementById('enum-badge');
+        if (badge) {
+          badge.textContent = data2.approved
+            ? `👤 Enumerator: ${enumeratorName}`
+            : `👤 Enumerator: ${enumeratorName} (Pending Approval)`;
+        }
+        return true;
+      }
+    }
+
+    // Profile not found — still allow submission with the link code
+    // This ensures printed QR codes never become completely useless
+    enumeratorName = 'Unknown Enumerator';
     const badge = document.getElementById('enum-badge');
-    if (badge) badge.textContent = `👤 Enumerator: ${enumeratorName}`;
+    if (badge) badge.textContent = '👤 Citizen Self Survey';
     return true;
   } catch (e) {
     console.error('validateEnumerator error:', e);
-    return false;
+    // On network error, still allow submission
+    enumeratorName = 'Unknown Enumerator';
+    const badge = document.getElementById('enum-badge');
+    if (badge) badge.textContent = '👤 Citizen Self Survey';
+    return true;
   }
 }
 
@@ -337,6 +376,7 @@ async function handleSubmit(e) {
 
   const payload = {
     assigned_enumerator_id: enumeratorId,
+    enumerator_link_code: enumeratorLinkCode,
     surveyor_email: enumeratorName,
     status: 'pending',
     citizen_name: document.getElementById('citizen_name').value.trim(),
