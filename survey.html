@@ -3,18 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="description" content="जनगणना सर्वेक्षण फॉर्म — Census Survey Portal">
-  <title>जनगणना सर्वेक्षण — Census Survey</title>
+  <meta name="description" content="जनगणना स्व-सर्वेक्षण फॉर्म — Citizen Self Survey">
+  <title>जनगणना स्व-सर्वेक्षण — Citizen Self Survey</title>
 
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
+  <style>
+    .citizen-header { text-align:center; padding: 28px 16px 16px; }
+    .citizen-header h1 { font-family:var(--font-heading); font-size:1.5rem; font-weight:800; color:var(--t1); letter-spacing:-0.3px; }
+    .citizen-header p { color:var(--t3); font-size:0.85rem; margin-top:4px; }
+    .enumerator-badge { display:inline-flex; align-items:center; gap:6px; background:var(--indigo-sub); color:var(--indigo-lt); border:1px solid var(--indigo-border); padding:6px 14px; border-radius:var(--r-full); font-size:0.78rem; font-weight:700; margin-top:10px; }
+    .pending-message { text-align:center; padding:40px 20px; }
+    .pending-message .icon { font-size:4rem; display:block; margin-bottom:16px; }
+    .pending-message h2 { font-family:var(--font-heading); font-size:1.6rem; font-weight:800; color:var(--t1); margin-bottom:8px; }
+    .pending-message p { color:var(--t3); font-size:0.9rem; line-height:1.6; max-width:400px; margin:0 auto; }
+    .citizen-name-group { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    @media (max-width:480px) { .citizen-name-group { grid-template-columns:1fr; } }
+  </style>
 </head>
 <body>
-  <!-- Background Orbs -->
   <div class="orb orb-1"></div>
   <div class="orb orb-2"></div>
   <div class="orb orb-3"></div>
@@ -33,208 +40,35 @@
     </div>
   </div>
 
-  <!-- WAIT SCREEN -->
-  <div id="screen-wait" class="fullscreen-overlay hidden">
-    <div class="wait-card">
-      <span class="wait-icon">⏳</span>
-      <h2 class="wait-title">Awaiting Approval</h2>
-      <div class="wait-name-badge" id="wait-name"></div>
-      <p class="wait-desc">Your account is created. An administrator needs to approve your profile before you can submit survey records.</p>
-      <div class="wait-actions">
-        <button class="btn btn-primary" id="btn-refresh-status">🔄 Check Status</button>
-        <button class="btn btn-outline btn-logout">Sign Out</button>
-      </div>
+  <!-- Error Screen (invalid/missing ref) -->
+  <div id="screen-error" class="fullscreen-overlay hidden">
+    <div class="auth-card" style="max-width:420px; text-align:center;">
+      <div style="font-size:3rem; margin-bottom:12px;">⚠️</div>
+      <h2 style="font-family:var(--font-heading); font-size:1.5rem; font-weight:800; color:var(--t1); margin-bottom:8px;">Invalid Link</h2>
+      <p style="color:var(--t3); font-size:0.88rem; line-height:1.6; margin-bottom:20px;">
+        This survey link is invalid or expired. Please ask your enumerator for a valid QR code or link.
+      </p>
+      <a href="index.html" class="btn btn-primary" style="text-decoration:none; display:inline-flex;">🏠 Go to Portal</a>
     </div>
   </div>
 
-  <!-- FORCE PASSWORD RESET -->
-  <div id="screen-force-reset" class="fullscreen-overlay hidden">
-    <div class="auth-card" style="max-width:420px;">
-      <div class="text-center" style="margin-bottom:24px;">
-        <div style="font-size:3rem;margin-bottom:12px;">🔐</div>
-        <h2 style="font-family:var(--font-heading);font-size:1.65rem;font-weight:900;color:var(--t1);letter-spacing:-0.5px;margin-bottom:8px;">Set New Password</h2>
-        <p style="font-size:0.84rem;color:var(--t2);line-height:1.65;">
-          Hello <strong id="force-reset-name" style="color:var(--amber-lt);"></strong>!<br>
-          The admin has reset your password. Please set a new one to continue.
-        </p>
-      </div>
-      <div class="alert alert-warning" style="margin-bottom:20px;font-size:0.83rem;">
-        ⚠️ You must set a new password to access the portal.
-      </div>
-      <form id="form-force-reset">
-        <div class="form-group">
-          <label class="form-label" for="fr-new-pwd">New Password <span class="req">*</span></label>
-          <input type="password" id="fr-new-pwd" class="form-input" placeholder="Min. 8 characters" required minlength="8" autocomplete="new-password">
-          <div class="pwd-strength-bar" style="margin-top:8px;height:4px;background:var(--bd);border-radius:var(--r-full);overflow:hidden;">
-            <div class="pwd-strength-fill" id="fr-strength-fill" style="height:100%;width:0%;background:transparent;transition:all 0.3s;"></div>
-          </div>
-          <div id="fr-strength-label" style="font-size:0.72rem;font-weight:700;margin-top:4px;transition:color 0.3s;height:16px;"></div>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="fr-confirm-pwd">Confirm New Password <span class="req">*</span></label>
-          <input type="password" id="fr-confirm-pwd" class="form-input" placeholder="Repeat password" required autocomplete="new-password">
-        </div>
-        <div class="alert alert-danger hidden" id="fr-err" style="margin-bottom:12px;"></div>
-        <button class="btn btn-primary" type="submit" id="btn-force-reset" style="background:linear-gradient(135deg,var(--amber),#F97316);box-shadow:0 4px 16px rgba(245,158,11,0.35);">Set New Password →</button>
-      </form>
-      <div style="text-align:center;margin-top:16px;">
-        <button class="btn btn-outline btn-logout" type="button" style="width:auto;padding:8px 22px;font-size:0.85rem;display:inline-flex;">Sign Out</button>
-      </div>
-    </div>
-  </div>
-
-  <style>
-    .wait-card {
-      background: var(--bg-card); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%);
-      border: 1px solid var(--glass-bd); border-radius: var(--r-2xl);
-      padding: 48px 36px; width: 100%; max-width: 440px; margin: 20px;
-      box-shadow: var(--sh-xl); text-align: center;
-      animation: fadeSlideIn 0.5s var(--spring) both; position: relative; z-index: 1;
-    }
-    .wait-icon { font-size: 4rem; display: block; margin-bottom: 16px; animation: pulseRing 2s ease-in-out infinite; }
-    .wait-title { font-family: var(--font-heading); font-size: 1.8rem; font-weight: 800; color: var(--t1); letter-spacing: -0.5px; margin-bottom: 12px; }
-    .wait-name-badge { display: inline-block; background: var(--indigo-sub); color: var(--indigo-lt); border: 1px solid var(--indigo-border); padding: 6px 18px; border-radius: var(--r-full); font-size: 0.85rem; font-weight: 700; margin-bottom: 16px; }
-    .wait-desc { color: var(--t2); font-size: 0.88rem; line-height: 1.65; margin-bottom: 28px; }
-    .wait-actions { display: flex; flex-direction: column; gap: 10px; }
-    .pwd-strength-bar { height: 4px; background: var(--bd); border-radius: var(--r-full); overflow: hidden; }
-    .pwd-strength-fill { height: 100%; width: 0%; background: transparent; transition: all 0.3s; }
-    @media (max-width: 480px) {
-      .wait-card { padding: 32px 24px; }
-      .wait-title { font-size: 1.5rem; }
-    }
-  </style>
-
-  <!-- Fixed theme toggle — only visible on auth/wait/force-reset (no app-header on those screens) -->
-  <button id="auth-theme-toggle" class="icon-btn theme-toggle" title="Toggle theme"
-    style="position:fixed;top:16px;right:16px;z-index:1100;display:none;">🌙</button>
-
-  <!-- Auth Screen -->
-  <div id="screen-auth" class="fullscreen-overlay hidden">
-    <div class="auth-card">
-      <div class="text-center" style="margin-bottom:28px;">
-        <div class="pin-logo-wrap">
-          <div class="pin-logo-ring">
-            <div class="pin-logo-ring-inner">🏠</div>
-          </div>
-        </div>
-        <h1 class="auth-title">जनगणना सर्वेक्षण</h1>
-        <div class="auth-subtitle">Census Survey Data Entry</div>
-      </div>
-
-      <div class="auth-tabs-bar">
-        <div id="tab-login" class="auth-tab-btn active" onclick="switchAuthTab('login')">Sign In</div>
-        <div id="tab-register" class="auth-tab-btn" onclick="switchAuthTab('register')">Register</div>
-        <a href="admin.html" class="auth-tab-btn" style="text-decoration:none;display:flex;align-items:center;gap:5px;font-size:0.78rem;">🛡️ Admin</a>
-      </div>
-
-      <form id="form-login">
-        <div class="form-group">
-          <label class="form-label" for="log-email">Email Address</label>
-          <input type="email" id="log-email" class="form-input" placeholder="surveyor@example.com" required autocomplete="email">
-        </div>
-        <div class="form-group">
-          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
-            <label class="form-label" for="log-pwd" style="margin-bottom:0;">Password</label>
-            <span onclick="switchAuthTab('forgot')" style="cursor:pointer;color:var(--indigo-lt);font-size:0.75rem;font-weight:600;transition:0.2s;">Forgot Password?</span>
-          </div>
-          <input type="password" id="log-pwd" class="form-input" placeholder="••••••••" required autocomplete="current-password">
-        </div>
-        <div class="alert alert-danger hidden" id="err-login"></div>
-        <button type="submit" class="btn btn-primary" id="btn-login">Sign In →</button>
-        <div class="auth-footer-note">New here? <strong onclick="switchAuthTab('register')">Create an account</strong></div>
-      </form>
-
-      <!-- Forgot Password Form -->
-      <form id="form-forgot" class="hidden">
-        <div style="margin-bottom:20px;color:var(--t2);font-size:0.85rem;line-height:1.5;">
-          Enter your registered email address and we'll send you a secure link to reset your password.
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="forgot-email">Email Address</label>
-          <input type="email" id="forgot-email" class="form-input" placeholder="surveyor@example.com" required>
-        </div>
-        <div class="alert alert-danger hidden" id="err-forgot" style="margin-bottom:14px;"></div>
-        <div class="alert alert-success hidden" id="succ-forgot" style="margin-bottom:14px;background:var(--emerald-sub);color:var(--emerald-lt);border:1px solid var(--emerald-border);padding:12px;border-radius:var(--r-sm);font-size:0.85rem;"></div>
-        <button type="submit" class="btn btn-primary" id="btn-forgot">Send Reset Link →</button>
-        <div class="auth-footer-note" style="margin-top:20px;">
-          <strong onclick="switchAuthTab('login')" style="cursor:pointer;color:var(--indigo-lt);">← Back to Sign in</strong>
-        </div>
-      </form>
-
-      <form id="form-register" class="hidden">
-        <div class="form-group">
-          <label class="form-label" for="reg-name">Full Name <span class="req">*</span></label>
-          <input type="text" id="reg-name" class="form-input" placeholder="e.g. Ramesh Kumar" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="reg-email">Email Address <span class="req">*</span></label>
-          <input type="email" id="reg-email" class="form-input" placeholder="you@example.com" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="reg-pwd">Password <span class="req">*</span></label>
-          <input type="password" id="reg-pwd" class="form-input" placeholder="Min. 8 characters" required minlength="8">
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="reg-pwd-confirm">Confirm Password <span class="req">*</span></label>
-          <input type="password" id="reg-pwd-confirm" class="form-input" placeholder="Repeat password" required>
-        </div>
-        <div class="alert alert-danger hidden" id="err-register"></div>
-        <button type="submit" class="btn btn-primary" id="btn-register">Create Account →</button>
-        <div class="auth-footer-note">Already registered? <strong onclick="switchAuthTab('login')">Sign in</strong></div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Main Survey Wizard -->
+  <!-- Main Survey Screen -->
   <div id="screen-main" class="hidden">
     <header class="app-header">
       <div class="header-branding">
         <h1 class="header-title"><span class="logo-icon">🏠</span> जनगणना सर्वेक्षण</h1>
-        <div class="header-subtitle">Census Survey Portal</div>
+        <div class="header-subtitle">Citizen Self Survey</div>
       </div>
       <div class="header-actions">
         <button class="icon-btn theme-toggle" title="Toggle theme">🌙</button>
-        <button class="icon-btn btn-logout" title="Sign Out">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-        </button>
       </div>
     </header>
 
     <div class="glass-container">
-      <!-- User Banner -->
-      <div class="teacher-banner">
-        <div class="teacher-avatar">👤</div>
-        <div class="teacher-info">
-          <div class="teacher-meta-label">Surveyor</div>
-          <div class="teacher-name" id="surveyor-name">—</div>
-        </div>
-        <div class="teacher-banner-actions">
-          <button class="teacher-pwd-btn" onclick="openRecords()" type="button" style="background:rgba(16,185,129,0.22);border-color:rgba(16,185,129,0.5);">📊 My Records</button>
-          <button class="teacher-pwd-btn" onclick="openChangePwdModal()" type="button">🔑 Change Pwd</button>
-        </div>
-      </div>
-
-      <!-- Shareable Citizen Link -->
-      <div class="glass-card" style="margin-bottom:16px;">
-        <div class="card-header"><span class="card-icon">🔗</span><h2 class="card-title">Citizen Self Survey Link</h2></div>
-        <div class="card-body">
-          <p style="font-size:0.84rem;color:var(--t2);line-height:1.6;margin-bottom:14px;">
-            Share this link or QR code with citizens so they can submit their own survey. Submissions will appear in your records for approval.
-          </p>
-          <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;">
-            <div style="flex:1;min-width:220px;">
-              <label class="form-label" style="font-size:0.75rem;">Your Unique Link</label>
-              <div style="display:flex;gap:8px;">
-                <input type="text" id="share-link" class="form-input" readonly style="font-size:0.8rem;background:var(--bg-raised);flex:1;">
-                <button class="btn btn-primary" style="width:auto;padding:9px 16px;font-size:0.8rem;" onclick="copyShareLink()" id="btn-copy-link">📋 Copy</button>
-              </div>
-            </div>
-            <div style="text-align:center;">
-              <canvas id="qr-canvas" style="width:120px;height:120px;border-radius:var(--r-md);border:1px solid var(--bd);"></canvas>
-              <div style="font-size:0.7rem;color:var(--t3);margin-top:4px;">Scan to fill survey</div>
-            </div>
-          </div>
-        </div>
+      <div class="citizen-header">
+        <h1>📝 स्व-सर्वेक्षण फॉर्म</h1>
+        <p>Self Survey Form — Fill your household details below</p>
+        <div class="enumerator-badge" id="enum-badge">👤 Enumerator: Loading…</div>
       </div>
 
       <!-- Progress Bar -->
@@ -622,6 +456,16 @@
           <div class="glass-card" id="step9-card">
             <div class="card-header"><span class="card-icon">🌾</span><h2 class="card-title">अनाज और संपर्क (Grain & Contact)</h2></div>
             <div class="card-body">
+              <!-- Citizen contact details -->
+              <div class="form-group">
+                <label class="form-label" for="citizen_name">आपका नाम (Your Name) <span class="req">*</span></label>
+                <input type="text" id="citizen_name" class="form-input" placeholder="Enter your full name" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="citizen_mobile">आपका मोबाइल नंबर (Your Mobile) <span class="req">*</span></label>
+                <input type="tel" id="citizen_mobile" class="form-input" placeholder="Enter 10-digit mobile number" required pattern="[6-9][0-9]{9}" maxlength="10">
+              </div>
+
               <div class="form-group" id="q33-group">
                 <label class="form-label">Q33. परिवार द्वारा उपयोग किए जाने वाला मुख्य अनाज (Main Grain) <span class="req">*</span></label>
                 <div class="radio-group">
@@ -634,7 +478,7 @@
                 </div>
               </div>
               <div class="form-group" id="q34-group">
-                <label class="form-label" for="q34">Q34. मोबाइल नम्बर (Mobile Number)</label>
+                <label class="form-label" for="q34">Q34. परिवार का मोबाइल नम्बर (Family Mobile Number)</label>
                 <input type="tel" id="q34" class="form-input" placeholder="Enter 10-digit Indian mobile number (optional)" pattern="[6-9][0-9]{9}" maxlength="10">
               </div>
             </div>
@@ -644,7 +488,6 @@
         <!-- Navigation Buttons -->
         <div class="wizard-nav">
           <button type="button" class="btn btn-outline hidden" id="btn-prev" onclick="prevStep()">← Previous</button>
-          <button type="button" class="btn btn-outline hidden" id="btn-cancel-edit" onclick="cancelEdit()" style="color:var(--rose-lt);border-color:var(--rose-border);">❌ Cancel Edit</button>
           <button type="button" class="btn btn-primary" id="btn-next" onclick="nextStep()">Next →</button>
           <button type="submit" class="btn btn-success hidden" id="btn-submit">✅ Submit Survey</button>
         </div>
@@ -652,135 +495,26 @@
     </div>
   </div>
 
-  <!-- Success Screen -->
-  <div id="screen-success" class="fullscreen-overlay hidden">
-    <div class="success-card">
-      <div class="success-hero">
-        <span class="tick-icon">✅</span>
-        <h2 class="success-title">Submitted!</h2>
-        <p class="success-sub">Survey data saved securely to the database.</p>
+  <!-- Pending Approval Screen -->
+  <div id="screen-pending" class="fullscreen-overlay hidden">
+    <div class="auth-card" style="max-width:460px; text-align:center;">
+      <div class="pending-message">
+        <span class="icon">⏳</span>
+        <h2>Survey Submitted!</h2>
+        <p>
+          Thank you for submitting your survey. Your response has been recorded and is <strong>pending approval</strong> from the enumerator and admin.
+        </p>
+        <p style="margin-top:12px; font-size:0.8rem; color:var(--t3);">
+          Once approved, it will be counted as a valid census survey.
+        </p>
       </div>
-      <div id="suc-details" class="detail-list"></div>
-      <div class="success-actions">
-        <button class="btn btn-primary" onclick="submitAnother()">➕ Submit Another Entry</button>
-        <button class="btn btn-outline" onclick="openRecords()">📊 View My Records</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Change Password Modal -->
-  <div id="modal-change-pwd" class="modal-backdrop" style="display:none;" onclick="if(event.target===this)closeChangePwdModal()">
-    <div class="modal-content" onclick="event.stopPropagation()">
-      <div class="modal-header">
-        <div class="modal-title">🔑 Change Password</div>
-        <button class="modal-close" type="button" onclick="closeChangePwdModal()">✕</button>
-      </div>
-      <p style="font-size:0.84rem;color:var(--t2);margin-bottom:20px;line-height:1.65;">
-        Set a new password for your account. Use a strong password you haven't used before.
-      </p>
-      <form id="form-change-pwd">
-        <div class="form-group">
-          <label class="form-label" for="cp-new-pwd">New Password <span class="req">*</span></label>
-          <input type="password" id="cp-new-pwd" class="form-input" placeholder="Min. 8 characters" required minlength="8" autocomplete="new-password">
-          <div class="pwd-strength-bar" style="margin-top:8px;">
-            <div class="pwd-strength-fill" id="cp-strength-fill"></div>
-          </div>
-          <div id="cp-strength-label" style="font-size:0.72rem;font-weight:700;margin-top:4px;transition:color 0.3s;height:16px;"></div>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="cp-confirm-pwd">Confirm New Password <span class="req">*</span></label>
-          <input type="password" id="cp-confirm-pwd" class="form-input" placeholder="Repeat password" required autocomplete="new-password">
-        </div>
-        <div class="alert alert-danger hidden" id="cp-err" style="margin-bottom:12px;"></div>
-        <div class="alert alert-success hidden" id="cp-success" style="margin-bottom:12px;background:var(--emerald-sub);color:var(--emerald-lt);border:1px solid var(--emerald-border);padding:12px;border-radius:var(--r-sm);font-size:0.85rem;"></div>
-        <button class="btn btn-primary" type="submit" id="btn-change-pwd">🔒 Update Password</button>
-      </form>
-    </div>
-  </div>
-
-  <style>
-    .modal-backdrop { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); backdrop-filter: blur(4px); padding: 16px; }
-    .modal-content { background: var(--bg-card); backdrop-filter: blur(20px); border: 1px solid var(--glass-bd); border-radius: var(--r-2xl); width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto; box-shadow: var(--sh-xl); animation: fadeSlideIn 0.3s var(--spring) both; }
-    .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px 16px; border-bottom: 1px solid var(--bd); }
-    .modal-title { font-family: var(--font-heading); font-size: 1.1rem; font-weight: 800; color: var(--t1); }
-    .modal-close { width: 32px; height: 32px; border-radius: var(--r-full); border: 1px solid var(--bd2); background: var(--bg-raised); color: var(--t3); font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
-    .modal-close:hover { background: var(--rose-sub); color: var(--rose-lt); border-color: var(--rose-border); }
-    #modal-change-pwd form { padding: 20px 24px 24px; }
-    @media (max-width: 480px) {
-      .modal-content { border-radius: var(--r-lg); }
-      .modal-header { padding: 16px 20px 12px; }
-      #modal-change-pwd form { padding: 16px 20px 20px; }
-    }
-  </style>
-
-  <!-- My Records Screen -->
-  <div id="screen-records" class="hidden">
-    <header class="app-header">
-      <div class="header-branding" style="flex-direction:row;align-items:center;gap:12px;">
-        <button onclick="showScreen('main')" class="back-btn" title="Back">←</button>
-        <div>
-          <h1 class="header-title" style="font-size:1rem;"><span class="logo-icon">📊</span> My Records</h1>
-          <div class="header-subtitle">Your Survey Submissions</div>
-        </div>
-      </div>
-      <div class="header-actions">
-        <button class="icon-btn theme-toggle" title="Toggle theme">🌙</button>
-        <button class="icon-btn btn-logout" title="Sign Out">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-        </button>
-      </div>
-    </header>
-
-    <div class="glass-container">
-      <!-- Date Filter + Export -->
-      <div class="glass-card">
-        <div class="card-header"><span class="card-icon">📅</span><h2 class="card-title">Filter Period</h2></div>
-        <div class="card-body">
-          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;">
-            <div>
-              <label class="form-label">From</label>
-              <input type="date" id="my-from" class="form-input" style="width:150px;padding:8px 12px;">
-            </div>
-            <div>
-              <label class="form-label">To</label>
-              <input type="date" id="my-to" class="form-input" style="width:150px;padding:8px 12px;">
-            </div>
-            <button class="btn btn-primary" style="width:auto;padding:9px 22px;" onclick="applyMyFilter()">Apply</button>
-            <button class="btn btn-outline" style="width:auto;padding:9px 22px;" onclick="resetMyFilter()">Reset</button>
-            <div style="margin-left:auto;display:flex;gap:8px;">
-              <button class="btn btn-success" style="width:auto;padding:9px 18px;background:linear-gradient(135deg,#10B981,#059669);" onclick="exportMyExcel()">📊 Excel</button>
-              <button class="btn btn-success" style="width:auto;padding:9px 18px;background:linear-gradient(135deg,#F59E0B,#F97316);" onclick="exportMyPDF()">📄 PDF</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Records Table -->
-      <div class="glass-card">
-        <div class="card-header" style="justify-content:space-between;flex-wrap:wrap;gap:10px;">
-          <div style="display:flex;align-items:center;gap:10px;"><span class="card-icon">📋</span><h2 class="card-title">All Submissions</h2></div>
-        </div>
-        <div id="records-body" style="overflow-x:auto;">
-          <div style="padding:40px;text-align:center;color:var(--t3);">⏳ Loading your records…</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- VIEW REPORT MODAL -->
-  <div id="modal-view-report" class="modal-backdrop" style="display:none;" onclick="if(event.target===this)closeUserViewModal()">
-    <div class="modal-content" style="max-width:640px;max-height:90vh;" onclick="event.stopPropagation()">
-      <div class="modal-header">
-        <div class="modal-title">📋 Survey Report Details</div>
-        <button class="modal-close" type="button" onclick="closeUserViewModal()">✕</button>
-      </div>
-      <div id="user-view-modal-body" style="padding:20px 24px 24px;overflow-y:auto;max-height:70vh;"></div>
+      <button class="btn btn-primary" onclick="location.reload()" style="margin-top:8px;">📝 Submit Another</button>
     </div>
   </div>
 
   <div id="global-toast" class="toast"></div>
 
-  <script src="app.js"></script>
+  <script src="survey.js"></script>
   <script>
     (function() {
       const t = localStorage.getItem('census-theme') || 'light';

@@ -89,7 +89,13 @@ create table census_surveys (
   id uuid default gen_random_uuid() primary key,
   created_at timestamptz default now(),
   user_id uuid references auth.users(id) on delete cascade,
-  surveyor_email text not null,
+  surveyor_email text,
+
+  -- Citizen self-survey tracking
+  assigned_enumerator_id uuid references surveyor_profiles(id) on delete set null,
+  status text default 'approved' check (status in ('pending', 'approved', 'rejected')),
+  citizen_name text,
+  citizen_mobile text,
 
   -- Step 1: House Identification
   q1_line_number integer,
@@ -150,28 +156,35 @@ create table census_surveys (
 -- Enable RLS
 alter table census_surveys enable row level security;
 
--- Insert: any authenticated user
+-- Insert: authenticated users (enumerators)
 create policy "Users can insert surveys"
   on census_surveys
   for insert
   to authenticated
   with check (auth.uid() is not null);
 
--- Select: users see only their own
+-- Anonymous citizen self-survey insert
+create policy "Citizens can submit self surveys"
+  on census_surveys
+  for insert
+  to anon
+  with check (assigned_enumerator_id is not null and user_id is null and status = 'pending');
+
+-- Select: users see their own + citizen surveys assigned to them
 create policy "Users can view own surveys"
   on census_surveys
   for select
   to authenticated
-  using (user_id = auth.uid());
+  using (user_id = auth.uid() or assigned_enumerator_id = auth.uid());
 
--- Update: users update only their own
+-- Update: users update only their own direct surveys
 create policy "Users can update own surveys"
   on census_surveys
   for update
   to authenticated
   using (user_id = auth.uid());
 
--- Delete: users delete only their own
+-- Delete: users delete only their own direct surveys
 create policy "Users can delete own surveys"
   on census_surveys
   for delete
@@ -185,6 +198,15 @@ create policy "Admin can view all surveys"
   to anon
   using (true);
 
+-- Admin can update all surveys (for approval workflow)
+create policy "Admin can update all surveys"
+  on census_surveys
+  for update
+  to anon
+  using (true);
+
 -- Indexes
 create index idx_census_user_id on census_surveys(user_id);
+create index idx_census_assigned_enum on census_surveys(assigned_enumerator_id);
+create index idx_census_status on census_surveys(status);
 create index idx_census_created on census_surveys(created_at desc);

@@ -102,21 +102,26 @@
         </div>
         <div class="stat-card">
           <div class="stat-val" id="stat-pending" style="color:var(--rose-lt);">0</div>
-          <div class="stat-lbl">Pending Approval</div>
+          <div class="stat-lbl">Pending Surveyors</div>
         </div>
         <div class="stat-card">
           <div class="stat-val" id="stat-approved" style="color:var(--emerald-lt);">0</div>
-          <div class="stat-lbl">Approved</div>
+          <div class="stat-lbl">Approved Surveyors</div>
         </div>
         <div class="stat-card">
           <div class="stat-val" id="stat-surveys" style="color:var(--cyan-lt);">0</div>
           <div class="stat-lbl">Total Surveys</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" id="stat-pending-surveys" style="color:var(--amber-lt);">0</div>
+          <div class="stat-lbl">Pending Surveys</div>
         </div>
       </div>
 
       <!-- Tabs -->
       <div class="tabs-bar">
         <div class="tab-btn active" onclick="switchTab('approvals', this)">👤 Surveyors <span class="pending-badge" id="tab-pending-badge" style="display:none;">0</span></div>
+        <div class="tab-btn" onclick="switchTab('pendingSurveys', this)">⏳ Pending Surveys <span class="pending-badge" id="tab-pending-surveys-badge" style="display:none;">0</span></div>
         <div class="tab-btn" onclick="switchTab('surveys', this)">📋 All Surveys</div>
       </div>
 
@@ -125,6 +130,14 @@
         <div class="section-title">👤 Surveyor Management</div>
         <div id="approvals-list">
           <div class="empty-state">⏳ Loading surveyors…</div>
+        </div>
+      </div>
+
+      <!-- Pending Surveys Section -->
+      <div id="section-pending-surveys" class="hidden">
+        <div class="section-title">⏳ Pending Citizen Surveys</div>
+        <div id="pending-surveys-list" style="overflow-x:auto;">
+          <div class="empty-state">⏳ Loading pending surveys…</div>
         </div>
       </div>
 

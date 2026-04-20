@@ -175,6 +175,7 @@ function routeUser() {
   } else {
     stopApprovalWatcher();
     document.getElementById('surveyor-name').textContent = currentProfile.name || currentUser.email;
+    generateShareLink();
     showScreen('main');
   }
 }
@@ -750,6 +751,38 @@ async function openRecords() {
   await loadMyRecords();
 }
 
+function generateShareLink() {
+  if (!currentUser) return;
+  const link = window.location.origin + window.location.pathname.replace('index.html', '') + 'survey.html?ref=' + currentUser.id;
+  const input = document.getElementById('share-link');
+  if (input) input.value = link;
+
+  try {
+    const qr = new QRious({
+      element: document.getElementById('qr-canvas'),
+      value: link,
+      size: 240,
+      level: 'M',
+      background: 'white',
+      foreground: 'black'
+    });
+  } catch (e) {
+    console.error('QR generation failed:', e);
+  }
+}
+
+function copyShareLink() {
+  const input = document.getElementById('share-link');
+  if (!input) return;
+  input.select();
+  navigator.clipboard.writeText(input.value).then(() => {
+    const btn = document.getElementById('btn-copy-link');
+    const oldText = btn.textContent;
+    btn.textContent = '✅ Copied!';
+    setTimeout(() => btn.textContent = oldText, 2000);
+  });
+}
+
 async function loadMyRecords(from, to) {
   const body = document.getElementById('records-body');
   body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--t3);">⏳ Loading…</div>';
@@ -760,7 +793,7 @@ async function loadMyRecords(from, to) {
   }
 
   try {
-    let query = db.from('census_surveys').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false });
+    let query = db.from('census_surveys').select('*').or(`user_id.eq.${currentUser.id},assigned_enumerator_id.eq.${currentUser.id}`).order('created_at', { ascending: false });
     if (from) query = query.gte('created_at', from + 'T00:00:00+05:30'); // IST offset
     if (to) query = query.lte('created_at', to + 'T23:59:59+05:30');     // IST offset
 
@@ -775,7 +808,7 @@ async function loadMyRecords(from, to) {
     }
 
     let html = `<table class="records-table"><thead><tr>
-      <th>#</th><th>Date</th><th>Line No.</th><th>Building</th><th>House</th>
+      <th>#</th><th>Date</th><th>Source</th><th>Status</th><th>Line No.</th><th>Building</th><th>House</th>
       <th>Head Name</th><th>Persons</th><th>Mobile</th><th>Actions</th>
     </tr></thead><tbody>`;
 
@@ -783,9 +816,23 @@ async function loadMyRecords(from, to) {
       const dt = new Date(r.created_at);
       const date = dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
       const time = dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      const isCitizen = !r.user_id && r.assigned_enumerator_id === currentUser.id;
+      const sourceBadge = isCitizen
+        ? `<span style="display:inline-flex;align-items:center;gap:3px;background:var(--cyan-sub);color:var(--cyan-lt);border:1px solid var(--cyan-border);padding:2px 8px;border-radius:var(--r-full);font-size:0.65rem;font-weight:700;">👤 Citizen</span>`
+        : `<span style="display:inline-flex;align-items:center;gap:3px;background:var(--indigo-sub);color:var(--indigo-lt);border:1px solid var(--indigo-border);padding:2px 8px;border-radius:var(--r-full);font-size:0.65rem;font-weight:700;">📝 Self</span>`;
+      const statusBadge = r.status === 'pending'
+        ? `<span style="display:inline-flex;align-items:center;gap:3px;background:var(--amber-sub);color:var(--amber-lt);border:1px solid var(--amber-border);padding:2px 8px;border-radius:var(--r-full);font-size:0.65rem;font-weight:700;">⏳ Pending</span>`
+        : r.status === 'rejected'
+        ? `<span style="display:inline-flex;align-items:center;gap:3px;background:var(--rose-sub);color:var(--rose-lt);border:1px solid var(--rose-border);padding:2px 8px;border-radius:var(--r-full);font-size:0.65rem;font-weight:700;">❌ Rejected</span>`
+        : `<span style="display:inline-flex;align-items:center;gap:3px;background:var(--emerald-sub);color:var(--emerald-lt);border:1px solid var(--emerald-border);padding:2px 8px;border-radius:var(--r-full);font-size:0.65rem;font-weight:700;">✅ Approved</span>`;
+      const editBtn = isCitizen || r.status === 'pending'
+        ? ''
+        : `<button class="action-btn" style="background:var(--amber-sub);color:var(--amber-lt);border:1px solid var(--amber-border);padding:5px 12px;font-size:0.75rem;border-radius:var(--r-full);cursor:pointer;margin-left:4px;" onclick="startEditRecord('${r.id}')">✏️ Edit</button>`;
       html += `<tr>
         <td>${i + 1}</td>
         <td><div style="font-weight:600;">${date}</div><div style="font-size:0.7rem;color:var(--t3);">${time}</div></td>
+        <td>${sourceBadge}</td>
+        <td>${statusBadge}</td>
         <td>${r.q1_line_number || '—'}</td>
         <td>${escapeHtml(r.q2_building_number || '—')}</td>
         <td>${escapeHtml(r.q3_census_house_number || '—')}</td>
@@ -794,7 +841,7 @@ async function loadMyRecords(from, to) {
         <td>${escapeHtml(r.q34_mobile_number || '—')}</td>
         <td>
           <button class="action-btn" style="background:var(--indigo-sub);color:var(--indigo-lt);border:1px solid var(--indigo-border);padding:5px 12px;font-size:0.75rem;border-radius:var(--r-full);cursor:pointer;" onclick="openUserViewModal('${r.id}')">👁 View</button>
-          <button class="action-btn" style="background:var(--amber-sub);color:var(--amber-lt);border:1px solid var(--amber-border);padding:5px 12px;font-size:0.75rem;border-radius:var(--r-full);cursor:pointer;margin-left:4px;" onclick="startEditRecord('${r.id}')">✏️ Edit</button>
+          ${editBtn}
         </td>
       </tr>`;
     });
@@ -1255,11 +1302,37 @@ function openUserViewModal(recordId) {
 
   const dt = new Date(record.created_at);
   const dateStr = dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const isCitizen = !record.user_id && record.assigned_enumerator_id;
 
   let html = `<div style="margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--bd);">
     <div style="font-size:0.65rem;color:var(--t3);font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Submitted</div>
     <div style="font-weight:700;color:var(--t1);">${dateStr}</div>
   </div>`;
+
+  if (isCitizen) {
+    html += `<div style="display:grid;grid-template-columns:1fr;gap:10px;margin-bottom:16px;">`;
+    html += `<div style="display:flex;gap:12px;padding:10px 12px;background:var(--cyan-sub);border-radius:var(--r-md);border:1px solid var(--cyan-border);">
+      <div style="font-size:0.65rem;color:var(--t3);font-weight:700;text-transform:uppercase;letter-spacing:1px;min-width:140px;flex-shrink:0;padding-top:2px;">Source</div>
+      <div style="font-size:0.88rem;font-weight:600;color:var(--t1);word-break:break-word;">👤 Citizen Self Survey</div>
+    </div>`;
+    if (record.citizen_name) {
+      html += `<div style="display:flex;gap:12px;padding:10px 12px;background:var(--bg-raised);border-radius:var(--r-md);border:1px solid var(--bd);">
+        <div style="font-size:0.65rem;color:var(--t3);font-weight:700;text-transform:uppercase;letter-spacing:1px;min-width:140px;flex-shrink:0;padding-top:2px;">Citizen Name</div>
+        <div style="font-size:0.88rem;font-weight:600;color:var(--t1);word-break:break-word;">${escapeHtml(record.citizen_name)}</div>
+      </div>`;
+    }
+    if (record.citizen_mobile) {
+      html += `<div style="display:flex;gap:12px;padding:10px 12px;background:var(--bg-raised);border-radius:var(--r-md);border:1px solid var(--bd);">
+        <div style="font-size:0.65rem;color:var(--t3);font-weight:700;text-transform:uppercase;letter-spacing:1px;min-width:140px;flex-shrink:0;padding-top:2px;">Citizen Mobile</div>
+        <div style="font-size:0.88rem;font-weight:600;color:var(--t1);word-break:break-word;">${escapeHtml(record.citizen_mobile)}</div>
+      </div>`;
+    }
+    html += `<div style="display:flex;gap:12px;padding:10px 12px;background:var(--bg-raised);border-radius:var(--r-md);border:1px solid var(--bd);">
+      <div style="font-size:0.65rem;color:var(--t3);font-weight:700;text-transform:uppercase;letter-spacing:1px;min-width:140px;flex-shrink:0;padding-top:2px;">Status</div>
+      <div style="font-size:0.88rem;font-weight:600;color:var(--t1);word-break:break-word;">${escapeHtml(record.status || 'approved')}</div>
+    </div>`;
+    html += '</div>';
+  }
 
   html += '<div style="display:grid;grid-template-columns:1fr;gap:10px;">';
   QUESTION_LABELS.forEach(q => {
@@ -1286,6 +1359,12 @@ function closeUserViewModal() {
 async function startEditRecord(recordId) {
   const record = _myRecordsCache.find(r => r.id === recordId);
   if (!record) return;
+
+  // Prevent editing citizen-submitted surveys
+  if (!record.user_id && record.assigned_enumerator_id) {
+    showToast('⚠️ Citizen surveys cannot be edited.');
+    return;
+  }
 
   _editingRecordId = recordId;
   document.getElementById('survey-form').reset();
