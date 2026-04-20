@@ -60,14 +60,15 @@ async function validateEnumerator() {
       .single();
 
     if (data) {
+      // Enumerator found — check if approved
+      if (!data.approved) {
+        showEnumeratorError('pending', data.name || data.email || 'This enumerator');
+        return false;
+      }
       enumeratorId = data.id;
       enumeratorName = data.name || data.email || 'Unknown Enumerator';
       const badge = document.getElementById('enum-badge');
-      if (badge) {
-        badge.textContent = data.approved
-          ? `👤 Enumerator: ${enumeratorName}`
-          : `👤 Enumerator: ${enumeratorName} (Pending Approval)`;
-      }
+      if (badge) badge.textContent = `👤 Enumerator: ${enumeratorName}`;
       return true;
     }
 
@@ -81,31 +82,42 @@ async function validateEnumerator() {
         .single();
 
       if (data2) {
+        if (!data2.approved) {
+          showEnumeratorError('pending', data2.name || data2.email || 'This enumerator');
+          return false;
+        }
         enumeratorId = data2.id;
         enumeratorName = data2.name || data2.email || 'Unknown Enumerator';
         const badge = document.getElementById('enum-badge');
-        if (badge) {
-          badge.textContent = data2.approved
-            ? `👤 Enumerator: ${enumeratorName}`
-            : `👤 Enumerator: ${enumeratorName} (Pending Approval)`;
-        }
+        if (badge) badge.textContent = `👤 Enumerator: ${enumeratorName}`;
         return true;
       }
     }
 
-    // Profile not found — still allow submission with the link code
-    // This ensures printed QR codes never become completely useless
-    enumeratorName = 'Unknown Enumerator';
-    const badge = document.getElementById('enum-badge');
-    if (badge) badge.textContent = '👤 Citizen Self Survey';
-    return true;
+    // Profile not found — block submission
+    showEnumeratorError('invalid');
+    return false;
   } catch (e) {
     console.error('validateEnumerator error:', e);
-    // On network error, still allow submission
-    enumeratorName = 'Unknown Enumerator';
-    const badge = document.getElementById('enum-badge');
-    if (badge) badge.textContent = '👤 Citizen Self Survey';
-    return true;
+    showEnumeratorError('network');
+    return false;
+  }
+}
+
+function showEnumeratorError(type, name) {
+  const errorTitle = document.querySelector('#screen-error h2');
+  const errorDesc = document.querySelector('#screen-error p');
+  if (!errorTitle || !errorDesc) return;
+
+  if (type === 'pending') {
+    errorTitle.textContent = '⏳ Enumerator Pending Approval';
+    errorDesc.innerHTML = `<strong>${escapeHtml(name)}</strong> has not been approved by the admin yet.<br><br>Please try again later or contact your survey administrator.`;
+  } else if (type === 'network') {
+    errorTitle.textContent = '⚠️ Connection Error';
+    errorDesc.textContent = 'Could not verify the enumerator. Please check your internet connection and try again.';
+  } else {
+    errorTitle.textContent = '⚠️ Invalid Link';
+    errorDesc.textContent = 'This survey link is invalid or has expired. Please ask your enumerator for a valid QR code or link.';
   }
 }
 

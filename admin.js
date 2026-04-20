@@ -18,6 +18,34 @@ let emailjsReady = false;
 let db = null;
 let allSurveyors = [];
 let allSurveys = [];
+let _adminSurveyChannel = null;
+
+function startAdminSurveyWatcher() {
+  if (_adminSurveyChannel) return;
+  if (!db) return;
+
+  _adminSurveyChannel = db
+    .channel('admin-pending-surveys')
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'census_surveys'
+    }, (payload) => {
+      const pendingSection = document.getElementById('section-pending-surveys');
+      const isPendingTabVisible = pendingSection && !pendingSection.classList.contains('hidden');
+
+      // If on pending surveys tab, auto-refresh
+      if (isPendingTabVisible) {
+        loadPendingSurveys();
+      }
+
+      // Update stats regardless of tab
+      updateStats();
+    })
+    .subscribe((status) => {
+      console.log('Admin survey watcher status:', status);
+    });
+}
 
 try {
   db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -89,6 +117,7 @@ function switchTab(tab, btn) {
 async function loadData() {
   await loadSurveyors();
   updateStats();
+  startAdminSurveyWatcher();
 }
 
 async function loadSurveyors() {

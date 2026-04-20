@@ -6,6 +6,10 @@
 const SUPABASE_URL = 'https://dvmhgzsxdidrvztmfrcq.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR2bWhnenN4ZGlkcnZ6dG1mcmNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY1MTQ4MTAsImV4cCI6MjA5MjA5MDgxMH0.Z2CgTRQOEHS9GtQLcbW6bNjnGDYhCg-TwApRVu3IoLo';
 
+// ── Deploy URL (used for share links & QR codes) ──
+// Change this to match your actual deployed URL:
+const DEPLOY_BASE_URL = 'https://pbhil95.github.io/Census_2027';
+
 // Capture recovery hash BEFORE Supabase client consumes it
 const URL_HAS_RECOVERY = window.location.hash.includes('type=recovery');
 
@@ -174,6 +178,7 @@ function routeUser() {
     showScreen('forceReset');
   } else {
     stopApprovalWatcher();
+    startSurveyStatusWatcher();
     document.getElementById('surveyor-name').textContent = currentProfile.name || currentUser.email;
     generateShareLink();
     showScreen('main');
@@ -182,35 +187,119 @@ function routeUser() {
 
 // ── REAL-TIME APPROVAL WATCHER ──
 let _approvalChannel = null;
+let _approvalPollInterval = null;
 
 function startApprovalWatcher() {
-  if (_approvalChannel) return;
   if (!currentUser) return;
 
-  _approvalChannel = db
-    .channel('approval-watch-' + currentUser.id)
-    .on('postgres_changes', {
-      event: 'UPDATE',
-      schema: 'public',
-      table: 'surveyor_profiles',
-      filter: `id=eq.${currentUser.id}`
-    }, (payload) => {
-      if (payload.new && payload.new.approved) {
+  // 1. Real-time channel (instant when it works)
+  if (!_approvalChannel) {
+    _approvalChannel = db
+      .channel('approval-watch-' + currentUser.id)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'surveyor_profiles',
+        filter: `id=eq.${currentUser.id}`
+      }, (payload) => {
+        if (payload.new && payload.new.approved) {
+          stopApprovalWatcher();
+          currentProfile = payload.new;
+          showToast('✅ Your account has been approved! Welcome!');
+          routeUser();
+        }
+      })
+      .subscribe((status, err) => {
+        console.log('Approval channel status:', status);
+        if (err) console.error('Approval channel error:', err);
+        if (status !== 'SUBSCRIBED') {
+          console.warn('Realtime not subscribed — falling back to polling only.');
+        }
+      });
+  }
+
+  // 2. Fallback polling every 5 seconds (works even if realtime is disabled)
+  if (!_approvalPollInterval) {
+    _approvalPollInterval = setInterval(async () => {
+      if (!currentUser || !currentProfile || currentProfile.approved) {
         stopApprovalWatcher();
-        currentProfile = payload.new;
-        showToast('✅ Your account has been approved! Welcome!');
-        routeUser();
+        return;
       }
-    })
-    .subscribe((status) => {
-      console.log('Approval channel status:', status);
-    });
+      try {
+        const { data: rows, error } = await db
+          .from('surveyor_profiles')
+          .select('approved, name, email, link_code')
+          .eq('id', currentUser.id)
+          .limit(1);
+        if (error) {
+          console.error('Approval poll query error:', error);
+          return;
+        }
+        const row = rows?.[0];
+        if (row && row.approved) {
+          stopApprovalWatcher();
+          currentProfile = { ...currentProfile, ...row };
+          showToast('✅ Your account has been approved! Welcome!');
+          routeUser();
+        }
+      } catch (e) {
+        console.error('Approval poll error:', e);
+      }
+    }, 5000);
+  }
 }
 
 function stopApprovalWatcher() {
   if (_approvalChannel) {
     db.removeChannel(_approvalChannel);
     _approvalChannel = null;
+  }
+  if (_approvalPollInterval) {
+    clearInterval(_approvalPollInterval);
+    _approvalPollInterval = null;
+  }
+}
+
+// ── REAL-TIME SURVEY STATUS WATCHER ──
+let _surveyChannel = null;
+
+function startSurveyStatusWatcher() {
+  if (_surveyChannel) return;
+  if (!currentUser || !currentProfile?.link_code) return;
+
+  _surveyChannel = db
+    .channel('survey-status-' + currentUser.id)
+    .on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'census_surveys'
+    }, (payload) => {
+      const survey = payload.new;
+      const isMine = survey.user_id === currentUser.id ||
+                     survey.assigned_enumerator_id === currentUser.id ||
+                     survey.enumerator_link_code === currentProfile.link_code;
+
+      if (isMine && payload.old?.status !== survey.status) {
+        const statusMsg = survey.status === 'approved' ? '✅ A survey was approved!' :
+                          survey.status === 'rejected' ? '❌ A survey was rejected.' : '';
+        if (statusMsg) showToast(statusMsg);
+
+        // Auto-refresh records if currently viewing them
+        const recordsScreen = document.getElementById('screen-records');
+        if (recordsScreen && !recordsScreen.classList.contains('hidden')) {
+          loadMyRecords();
+        }
+      }
+    })
+    .subscribe((status) => {
+      console.log('Survey status channel status:', status);
+    });
+}
+
+function stopSurveyStatusWatcher() {
+  if (_surveyChannel) {
+    db.removeChannel(_surveyChannel);
+    _surveyChannel = null;
   }
 }
 
@@ -587,22 +676,16 @@ async function handleSubmit(e) {
 
   let error = null;
   try {
-    const dbPromise = _editingRecordId
-      ? db.from('census_surveys').update(payload).eq('id', _editingRecordId)
-      : db.from('census_surveys').insert([payload]);
-
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Request timed out. Please check your connection and try again.')), 15000)
-    );
-
-    const result = await Promise.race([dbPromise, timeoutPromise]);
+    const result = _editingRecordId
+      ? await db.from('census_surveys').update(payload).eq('id', _editingRecordId)
+      : await db.from('census_surveys').insert([payload]);
     if (result.error) error = result.error;
   } catch (err) {
     error = err;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = _editingRecordId ? '💾 Update Survey' : '✅ Submit Survey';
   }
-
-  btn.disabled = false;
-  btn.innerHTML = _editingRecordId ? '💾 Update Survey' : '✅ Submit Survey';
 
   if (error) {
     showToast('❌ Error: ' + (error.message || 'Unknown error'));
@@ -751,28 +834,46 @@ async function handleEditDetails(e) {
   err.classList.add('hidden');
   success.classList.add('hidden');
 
-  if (!name) return showError(err, 'Name is required');
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showError(err, 'Enter a valid email address');
+  if (!name) {
+    showError(err, 'Name is required');
+    return;
+  }
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    showError(err, 'Enter a valid email address');
+    return;
+  }
 
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-sm"></span> Saving…';
 
-  try {
-    // Update auth email if changed
-    if (email !== currentUser.email) {
-      const { error: authErr } = await db.auth.updateUser({ email });
-      if (authErr) throw authErr;
-    }
+  let authEmailChanged = false;
+  let authEmailError = null;
 
-    // Update profile (name + email)
+  try {
+    // 1. Update profile first (most important — never skip)
     const { error: profileErr } = await db
       .from('surveyor_profiles')
       .update({ name, email })
       .eq('id', currentUser.id);
     if (profileErr) throw profileErr;
 
-    // Update local state
-    currentUser.email = email;
+    // 2. Try auth email update separately so it can't block the profile update
+    if (email !== currentUser.email) {
+      try {
+        const { error: authErr } = await db.auth.updateUser({ email });
+        if (authErr) {
+          authEmailError = authErr.message || 'Email update failed';
+        } else {
+          authEmailChanged = true;
+          currentUser.email = email;
+        }
+      } catch (authEx) {
+        authEmailError = authEx.message || 'Email update failed';
+        console.warn('Auth email update error (non-blocking):', authEx);
+      }
+    }
+
+    // 3. Update local state
     if (currentUser.user_metadata) currentUser.user_metadata.full_name = name;
     if (currentProfile) {
       currentProfile.name = name;
@@ -780,15 +881,22 @@ async function handleEditDetails(e) {
     }
     document.getElementById('surveyor-name').textContent = name || email;
 
-    success.textContent = '✅ Profile updated successfully!';
-    success.classList.remove('hidden');
-    setTimeout(closeEditDetailsModal, 2000);
+    // 4. Show result
+    if (authEmailError) {
+      success.textContent = '✅ Name saved. ⚠️ Email update pending — check your new email inbox for a confirmation link from Supabase.';
+      success.classList.remove('hidden');
+    } else {
+      success.textContent = '✅ Profile updated successfully!';
+      success.classList.remove('hidden');
+      setTimeout(closeEditDetailsModal, 2000);
+    }
   } catch (ex) {
-    showError(err, ex.message);
+    console.error('Profile update error:', ex);
+    showError(err, ex.message || 'Failed to save profile. Please try again.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '💾 Save Changes';
   }
-
-  btn.disabled = false;
-  btn.textContent = '💾 Save Changes';
 }
 
 // ── PASSWORD STRENGTH ──
@@ -830,7 +938,7 @@ async function openRecords() {
 
 function generateShareLink() {
   if (!currentUser || !currentProfile?.link_code) return;
-  const link = window.location.origin + window.location.pathname.replace('index.html', '') + 'survey.html?ref=' + currentProfile.link_code;
+  const link = DEPLOY_BASE_URL + '/survey.html?ref=' + currentProfile.link_code;
   const input = document.getElementById('share-link');
   if (input) input.value = link;
 
@@ -1019,6 +1127,7 @@ function setupEventListeners() {
       currentProfile = null;
       recoveryMode = false;
       stopApprovalWatcher();
+      stopSurveyStatusWatcher();
       showScreen('auth');                          // User sees login screen immediately
 
       // ── Step 2: Tell Supabase to invalidate the session (best-effort, background) ──
@@ -1077,7 +1186,7 @@ function setupEventListeners() {
     btn.innerHTML = '<span class="spinner-sm"></span> Sending Link…';
 
     try {
-      const redirectTo = window.location.origin + window.location.pathname;
+      const redirectTo = DEPLOY_BASE_URL + '/';
       const { error } = await db.auth.resetPasswordForEmail(email, { redirectTo });
       if (error) throw error;
 
@@ -1141,16 +1250,32 @@ function setupEventListeners() {
   // Refresh status
   document.getElementById('btn-refresh-status')?.addEventListener('click', async () => {
     const btn = document.getElementById('btn-refresh-status');
+    if (!btn || btn.disabled) return;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-sm"></span> Checking…';
 
+    // Safety net: force re-enable button after 15s no matter what
+    const safetyTimeout = setTimeout(() => {
+      if (btn && btn.disabled) {
+        btn.disabled = false;
+        btn.textContent = '🔄 Check Status';
+        console.warn('Check Status safety timeout fired — query may have hung');
+      }
+    }, 15000);
+
     try {
-      const { data: row } = await db
+      const { data: rows, error } = await db
         .from('surveyor_profiles')
         .select('*')
         .eq('id', currentUser.id)
-        .single();
+        .limit(1);
 
+      if (error) {
+        console.error('Check status query error:', error);
+        throw error;
+      }
+
+      const row = rows?.[0];
       if (row && row.approved) {
         currentProfile = row;
         showToast('✅ Account approved! Redirecting…');
@@ -1168,10 +1293,22 @@ function setupEventListeners() {
       }
     } catch (e) {
       console.error('Check status error:', e);
+      const desc = document.querySelector('#screen-wait .wait-desc');
+      if (desc) {
+        desc.style.color = 'var(--rose-lt)';
+        desc.textContent = '⚠️ Could not check status. Please try again.';
+        setTimeout(() => {
+          desc.style.color = '';
+          desc.textContent = 'Your account is created. An administrator needs to approve your profile before you can submit survey records.';
+        }, 3000);
+      }
+    } finally {
+      clearTimeout(safetyTimeout);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '🔄 Check Status';
+      }
     }
-
-    btn.disabled = false;
-    btn.textContent = '🔄 Check Status';
   });
 
   // Force reset
