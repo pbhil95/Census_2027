@@ -210,6 +210,7 @@
         </div>
         <div class="teacher-banner-actions">
           <button class="teacher-pwd-btn" onclick="openRecords()" type="button" style="background:rgba(16,185,129,0.22);border-color:rgba(16,185,129,0.5);">📊 My Records</button>
+          <button class="teacher-pwd-btn" onclick="openEditDetailsModal()" type="button">✏️ Edit Details</button>
           <button class="teacher-pwd-btn" onclick="openChangePwdModal()" type="button">🔑 Change Pwd</button>
         </div>
       </div>
@@ -698,6 +699,32 @@
     </div>
   </div>
 
+  <!-- Edit Details Modal -->
+  <div id="modal-edit-details" class="modal-backdrop" style="display:none;" onclick="if(event.target===this)closeEditDetailsModal()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div class="modal-title">✏️ Edit Profile Details</div>
+        <button class="modal-close" type="button" onclick="closeEditDetailsModal()">✕</button>
+      </div>
+      <p style="font-size:0.84rem;color:var(--t2);margin-bottom:20px;line-height:1.65;padding:0 24px;">
+        Update your name and email address. A confirmation may be sent to your new email if changed.
+      </p>
+      <form id="form-edit-details">
+        <div class="form-group">
+          <label class="form-label" for="ed-name">Full Name <span class="req">*</span></label>
+          <input type="text" id="ed-name" class="form-input" placeholder="Your full name" required autocomplete="name">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="ed-email">Email Address <span class="req">*</span></label>
+          <input type="email" id="ed-email" class="form-input" placeholder="you@example.com" required autocomplete="email">
+        </div>
+        <div class="alert alert-danger hidden" id="ed-err" style="margin-bottom:12px;"></div>
+        <div class="alert alert-success hidden" id="ed-success" style="margin-bottom:12px;background:var(--emerald-sub);color:var(--emerald-lt);border:1px solid var(--emerald-border);padding:12px;border-radius:var(--r-sm);font-size:0.85rem;"></div>
+        <button class="btn btn-primary" type="submit" id="btn-edit-details">💾 Save Changes</button>
+      </form>
+    </div>
+  </div>
+
   <style>
     .modal-backdrop { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); backdrop-filter: blur(4px); padding: 16px; }
     .modal-content { background: var(--bg-card); backdrop-filter: blur(20px); border: 1px solid var(--glass-bd); border-radius: var(--r-2xl); width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto; box-shadow: var(--sh-xl); animation: fadeSlideIn 0.3s var(--spring) both; }
@@ -705,11 +732,11 @@
     .modal-title { font-family: var(--font-heading); font-size: 1.1rem; font-weight: 800; color: var(--t1); }
     .modal-close { width: 32px; height: 32px; border-radius: var(--r-full); border: 1px solid var(--bd2); background: var(--bg-raised); color: var(--t3); font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
     .modal-close:hover { background: var(--rose-sub); color: var(--rose-lt); border-color: var(--rose-border); }
-    #modal-change-pwd form { padding: 20px 24px 24px; }
+    #modal-change-pwd form, #modal-edit-details form { padding: 0 24px 24px; }
     @media (max-width: 480px) {
       .modal-content { border-radius: var(--r-lg); }
       .modal-header { padding: 16px 20px 12px; }
-      #modal-change-pwd form { padding: 16px 20px 20px; }
+      #modal-change-pwd form, #modal-edit-details form { padding: 0 20px 20px; }
     }
   </style>
 

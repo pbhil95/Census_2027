@@ -530,8 +530,9 @@ async function handleSubmit(e) {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-sm"></span> ' + (_editingRecordId ? 'Updating…' : 'Submitting…');
 
-  const payload = {
-    user_id: currentUser.id,
+  const isEditingCitizenSurvey = _editingRecordId && _myRecordsCache.find(r => r.id === _editingRecordId && !r.user_id);
+
+  let payload = {
     surveyor_email: currentUser.email,
     q1_line_number: parseInt(document.getElementById('q1').value, 10) || null,
     q2_building_number: document.getElementById('q2').value.trim(),
@@ -571,6 +572,17 @@ async function handleSubmit(e) {
     q33_main_grain: document.querySelector('input[name="q33"]:checked')?.value || '',
     q34_mobile_number: document.getElementById('q34').value.trim(),
   };
+
+  // For new enumerator-submitted surveys, set the user_id
+  if (!_editingRecordId) {
+    payload.user_id = currentUser.id;
+  }
+
+  // When editing a citizen survey, preserve ownership fields so it stays a citizen survey
+  if (isEditingCitizenSurvey) {
+    delete payload.user_id;
+    delete payload.surveyor_email;
+  }
 
   let error = null;
   try {
@@ -714,6 +726,70 @@ async function handleChangePwd(e) {
   btn.textContent = '🔒 Update Password';
 }
 
+// ── EDIT DETAILS MODAL ──
+function openEditDetailsModal() {
+  document.getElementById('ed-name').value = currentProfile?.name || currentUser?.user_metadata?.full_name || currentUser?.email?.split('@')[0] || '';
+  document.getElementById('ed-email').value = currentUser?.email || '';
+  document.getElementById('ed-err').classList.add('hidden');
+  document.getElementById('ed-success').classList.add('hidden');
+  document.getElementById('modal-edit-details').style.display = 'flex';
+}
+
+function closeEditDetailsModal() {
+  document.getElementById('modal-edit-details').style.display = 'none';
+}
+
+async function handleEditDetails(e) {
+  e.preventDefault();
+  const name = document.getElementById('ed-name').value.trim();
+  const email = document.getElementById('ed-email').value.trim().toLowerCase();
+  const err = document.getElementById('ed-err');
+  const success = document.getElementById('ed-success');
+  const btn = document.getElementById('btn-edit-details');
+
+  err.classList.add('hidden');
+  success.classList.add('hidden');
+
+  if (!name) return showError(err, 'Name is required');
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showError(err, 'Enter a valid email address');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-sm"></span> Saving…';
+
+  try {
+    // Update auth email if changed
+    if (email !== currentUser.email) {
+      const { error: authErr } = await db.auth.updateUser({ email });
+      if (authErr) throw authErr;
+    }
+
+    // Update profile (name + email)
+    const { error: profileErr } = await db
+      .from('surveyor_profiles')
+      .update({ name, email })
+      .eq('id', currentUser.id);
+    if (profileErr) throw profileErr;
+
+    // Update local state
+    currentUser.email = email;
+    if (currentUser.user_metadata) currentUser.user_metadata.full_name = name;
+    if (currentProfile) {
+      currentProfile.name = name;
+      currentProfile.email = email;
+    }
+    document.getElementById('surveyor-name').textContent = name || email;
+
+    success.textContent = '✅ Profile updated successfully!';
+    success.classList.remove('hidden');
+    setTimeout(closeEditDetailsModal, 2000);
+  } catch (ex) {
+    showError(err, ex.message);
+  }
+
+  btn.disabled = false;
+  btn.textContent = '💾 Save Changes';
+}
+
 // ── PASSWORD STRENGTH ──
 function updatePwdStrength(pwd, fillId, labelId) {
   const fill = document.getElementById(fillId);
@@ -825,9 +901,16 @@ async function loadMyRecords(from, to) {
         : r.status === 'rejected'
         ? `<span style="display:inline-flex;align-items:center;gap:3px;background:var(--rose-sub);color:var(--rose-lt);border:1px solid var(--rose-border);padding:2px 8px;border-radius:var(--r-full);font-size:0.65rem;font-weight:700;">❌ Rejected</span>`
         : `<span style="display:inline-flex;align-items:center;gap:3px;background:var(--emerald-sub);color:var(--emerald-lt);border:1px solid var(--emerald-border);padding:2px 8px;border-radius:var(--r-full);font-size:0.65rem;font-weight:700;">✅ Approved</span>`;
-      const editBtn = isCitizen || r.status === 'pending'
-        ? ''
-        : `<button class="action-btn" style="background:var(--amber-sub);color:var(--amber-lt);border:1px solid var(--amber-border);padding:5px 12px;font-size:0.75rem;border-radius:var(--r-full);cursor:pointer;margin-left:4px;" onclick="startEditRecord('${r.id}')">✏️ Edit</button>`;
+      let actionBtns = `<button class="action-btn" style="background:var(--indigo-sub);color:var(--indigo-lt);border:1px solid var(--indigo-border);padding:5px 12px;font-size:0.75rem;border-radius:var(--r-full);cursor:pointer;" onclick="openUserViewModal('${r.id}')">👁 View</button>`;
+      actionBtns += `<button class="action-btn" style="background:var(--amber-sub);color:var(--amber-lt);border:1px solid var(--amber-border);padding:5px 12px;font-size:0.75rem;border-radius:var(--r-full);cursor:pointer;margin-left:4px;" onclick="startEditRecord('${r.id}')">✏️ Edit</button>`;
+      if (isCitizen) {
+        if (r.status === 'pending' || r.status === 'rejected') {
+          actionBtns += `<button class="action-btn" style="background:linear-gradient(135deg,var(--emerald),#059669);color:#fff;padding:5px 12px;font-size:0.75rem;border-radius:var(--r-full);cursor:pointer;margin-left:4px;box-shadow:0 2px 8px rgba(16,185,129,0.3);" onclick="approveCitizenSurvey('${r.id}', this)">✅ Approve</button>`;
+        }
+        if (r.status === 'pending' || r.status === 'approved') {
+          actionBtns += `<button class="action-btn" style="background:var(--rose-sub);color:var(--rose-lt);border:1px solid var(--rose-border);padding:5px 12px;font-size:0.75rem;border-radius:var(--r-full);cursor:pointer;margin-left:4px;" onclick="rejectCitizenSurvey('${r.id}', this)">❌ Reject</button>`;
+        }
+      }
       html += `<tr>
         <td>${i + 1}</td>
         <td><div style="font-weight:600;">${date}</div><div style="font-size:0.7rem;color:var(--t3);">${time}</div></td>
@@ -839,10 +922,7 @@ async function loadMyRecords(from, to) {
         <td>${escapeHtml(r.q11_head_name || '—')}</td>
         <td>${r.q10_persons_count || '—'}</td>
         <td>${escapeHtml(r.q34_mobile_number || '—')}</td>
-        <td>
-          <button class="action-btn" style="background:var(--indigo-sub);color:var(--indigo-lt);border:1px solid var(--indigo-border);padding:5px 12px;font-size:0.75rem;border-radius:var(--r-full);cursor:pointer;" onclick="openUserViewModal('${r.id}')">👁 View</button>
-          ${editBtn}
-        </td>
+        <td>${actionBtns}</td>
       </tr>`;
     });
 
@@ -1097,6 +1177,9 @@ function setupEventListeners() {
 
   // Change pwd
   document.getElementById('form-change-pwd')?.addEventListener('submit', handleChangePwd);
+
+  // Edit details
+  document.getElementById('form-edit-details')?.addEventListener('submit', handleEditDetails);
 
   // Pwd strength listeners
   document.getElementById('fr-new-pwd')?.addEventListener('input', (e) => {
@@ -1360,12 +1443,6 @@ async function startEditRecord(recordId) {
   const record = _myRecordsCache.find(r => r.id === recordId);
   if (!record) return;
 
-  // Prevent editing citizen-submitted surveys
-  if (!record.user_id && record.assigned_enumerator_id) {
-    showToast('⚠️ Citizen surveys cannot be edited.');
-    return;
-  }
-
   _editingRecordId = recordId;
   document.getElementById('survey-form').reset();
   clearFormValidation();
@@ -1455,6 +1532,39 @@ function cancelEdit() {
   updateProgress();
   document.getElementById('btn-submit').innerHTML = '✅ Submit Survey';
   showToast('❌ Edit cancelled.');
+}
+
+// ── ENUMERATOR APPROVE / REJECT CITIZEN SURVEYS ──
+async function approveCitizenSurvey(id, btn) {
+  btn.disabled = true;
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner-sm"></span>';
+  try {
+    const { error } = await db.from('census_surveys').update({ status: 'approved' }).eq('id', id);
+    if (error) throw error;
+    showToast('✅ Survey approved successfully!');
+    loadMyRecords();
+  } catch (e) {
+    showToast('❌ Error: ' + e.message);
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+  }
+}
+
+async function rejectCitizenSurvey(id, btn) {
+  btn.disabled = true;
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner-sm"></span>';
+  try {
+    const { error } = await db.from('census_surveys').update({ status: 'rejected' }).eq('id', id);
+    if (error) throw error;
+    showToast('❌ Survey rejected.');
+    loadMyRecords();
+  } catch (e) {
+    showToast('❌ Error: ' + e.message);
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
