@@ -238,6 +238,10 @@
               <div style="font-size:0.7rem;color:var(--t3);margin-top:4px;">Scan to fill survey</div>
             </div>
           </div>
+          <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--bd);display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;">
+            <div style="font-size:0.78rem;color:var(--t3);font-weight:700;">For citizens who prefer offline submission</div>
+            <a href="offline-form.html" target="_blank" id="offline-form-link" class="btn btn-outline" style="width:auto;padding:9px 16px;font-size:0.8rem;text-decoration:none;">Print Offline PDF Form</a>
+          </div>
         </div>
       </div>
 
@@ -710,12 +714,16 @@
         <button class="modal-close" type="button" onclick="closeEditDetailsModal()">✕</button>
       </div>
       <p style="font-size:0.84rem;color:var(--t2);margin-bottom:20px;line-height:1.65;padding:0 24px;">
-        Update your name and email address. A confirmation may be sent to your new email if changed.
+        Update your name, HLB number, and email address. A confirmation may be sent to your new email if changed.
       </p>
       <form id="form-edit-details">
         <div class="form-group">
           <label class="form-label" for="ed-name">Full Name <span class="req">*</span></label>
           <input type="text" id="ed-name" class="form-input" placeholder="Your full name" required autocomplete="name">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="ed-hlb">HLB Number</label>
+          <input type="text" id="ed-hlb" class="form-input" placeholder="Enter HLB number" autocomplete="off">
         </div>
         <div class="form-group">
           <label class="form-label" for="ed-email">Email Address <span class="req">*</span></label>

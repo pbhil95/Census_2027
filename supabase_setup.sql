@@ -12,6 +12,7 @@ create table surveyor_profiles (
   created_at timestamptz default now(),
   name text not null,
   email text not null,
+  hlb_number text,
   approved boolean default false,
   force_password_reset boolean default false,
   link_code text unique not null default encode(gen_random_bytes(4), 'hex')
@@ -59,6 +60,9 @@ create policy "Allow admin update all profiles"
 create index idx_surveyor_profiles_approved on surveyor_profiles(approved);
 create index idx_surveyor_profiles_email on surveyor_profiles(email);
 create index idx_surveyor_profiles_link_code on surveyor_profiles(link_code);
+
+-- Run this once on existing Supabase projects that already have surveyor_profiles.
+alter table surveyor_profiles add column if not exists hlb_number text;
 
 -- ═══════════════════════════════════════════════════════════
 --  2. Auto-create profile on signup (Trigger)

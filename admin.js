@@ -150,6 +150,7 @@ function renderSurveyors() {
         <div class="surveyor-info">
           <div class="surveyor-name">${escapeHtml(p.name || 'Unknown')}</div>
           <div class="surveyor-email">${escapeHtml(p.email)}</div>
+          <div class="surveyor-date">HLB: ${escapeHtml(p.hlb_number || '—')}</div>
           <div class="surveyor-date">Registered: ${date}</div>
           <div style="display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap;">
             <span style="font-size:0.72rem;color:var(--t3);font-weight:600;background:var(--bg-raised);border:1px solid var(--bd2);padding:3px 10px;border-radius:var(--r-full);">🔗 ${escapeHtml(p.link_code || '—')}</span>

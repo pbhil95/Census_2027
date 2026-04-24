@@ -181,8 +181,23 @@ function routeUser() {
     startSurveyStatusWatcher();
     document.getElementById('surveyor-name').textContent = currentProfile.name || currentUser.email;
     generateShareLink();
+    updateOfflineFormLink();
     showScreen('main');
   }
+}
+
+function updateOfflineFormLink() {
+  const link = document.getElementById('offline-form-link');
+  if (!link) return;
+
+  const params = new URLSearchParams();
+  const name = currentProfile?.name || currentUser?.user_metadata?.full_name || currentUser?.email || '';
+  const hlbNumber = currentProfile?.hlb_number || '';
+
+  if (name) params.set('name', name);
+  if (hlbNumber) params.set('hlb', hlbNumber);
+
+  link.href = params.toString() ? `offline-form.html?${params.toString()}` : 'offline-form.html';
 }
 
 // ── REAL-TIME APPROVAL WATCHER ──
@@ -813,6 +828,7 @@ async function handleChangePwd(e) {
 // ── EDIT DETAILS MODAL ──
 function openEditDetailsModal() {
   document.getElementById('ed-name').value = currentProfile?.name || currentUser?.user_metadata?.full_name || currentUser?.email?.split('@')[0] || '';
+  document.getElementById('ed-hlb').value = currentProfile?.hlb_number || '';
   document.getElementById('ed-email').value = currentUser?.email || '';
   document.getElementById('ed-err').classList.add('hidden');
   document.getElementById('ed-success').classList.add('hidden');
@@ -823,9 +839,19 @@ function closeEditDetailsModal() {
   document.getElementById('modal-edit-details').style.display = 'none';
 }
 
+function withTimeout(promise, ms, message) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+}
+
 async function handleEditDetails(e) {
   e.preventDefault();
   const name = document.getElementById('ed-name').value.trim();
+  const hlbNumber = document.getElementById('ed-hlb').value.trim();
   const email = document.getElementById('ed-email').value.trim().toLowerCase();
   const err = document.getElementById('ed-err');
   const success = document.getElementById('ed-success');
@@ -846,25 +872,41 @@ async function handleEditDetails(e) {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-sm"></span> Saving…';
 
-  let authEmailChanged = false;
   let authEmailError = null;
 
   try {
     // 1. Update profile first (most important — never skip)
-    const { error: profileErr } = await db
-      .from('surveyor_profiles')
-      .update({ name, email })
-      .eq('id', currentUser.id);
-    if (profileErr) throw profileErr;
+    const { error: profileErr } = await withTimeout(
+      db
+        .from('surveyor_profiles')
+        .update({ name, email, hlb_number: hlbNumber || null })
+        .eq('id', currentUser.id),
+      12000,
+      'Profile save timed out. Please check your internet connection and try again.'
+    );
+    if (profileErr) {
+      const missingHlbColumn =
+        profileErr.code === 'PGRST204' ||
+        /hlb_number|schema cache|column/i.test(profileErr.message || '');
+
+      if (missingHlbColumn) {
+        throw new Error('HLB number cannot be saved yet. Please run this in Supabase SQL Editor: alter table surveyor_profiles add column if not exists hlb_number text;');
+      }
+
+      throw profileErr;
+    }
 
     // 2. Try auth email update separately so it can't block the profile update
     if (email !== currentUser.email) {
       try {
-        const { error: authErr } = await db.auth.updateUser({ email });
+        const { error: authErr } = await withTimeout(
+          db.auth.updateUser({ email }),
+          12000,
+          'Profile saved, but email update timed out. Please try changing email again later.'
+        );
         if (authErr) {
           authEmailError = authErr.message || 'Email update failed';
         } else {
-          authEmailChanged = true;
           currentUser.email = email;
         }
       } catch (authEx) {
@@ -878,8 +920,10 @@ async function handleEditDetails(e) {
     if (currentProfile) {
       currentProfile.name = name;
       currentProfile.email = email;
+      currentProfile.hlb_number = hlbNumber || null;
     }
     document.getElementById('surveyor-name').textContent = name || email;
+    updateOfflineFormLink();
 
     // 4. Show result
     if (authEmailError) {
