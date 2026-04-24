@@ -192,24 +192,48 @@
       .meta-grid { grid-template-columns: 1fr; }
       .options { grid-template-columns: 1fr; }
     }
-    @page { size: A4; margin: 5mm; }
+    /* ── Print / Save-as-PDF ── */
+    @page {
+      size: A4 portrait;
+      /* Let the browser apply its standard 10mm margins — it centres
+         the content perfectly on the page without any shifts. */
+      margin: 6mm 8mm;
+    }
     @media print {
-      body { background: #fff; font-size: 9.1pt; line-height: 1.13; }
-      .toolbar { display: none; }
-      .sheet { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; }
-      .section { margin-bottom: 2px; }
-      .section-title { padding-top: 2px; padding-bottom: 2px; }
-      .question { padding-top: 2.5px; padding-bottom: 2.5px; gap: 2px; }
-      .meta-grid { grid-template-columns: 1.2fr 1fr 1fr; }
-      .options { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px 7px; }
-      .option { font-size: 9pt; line-height: 1.16; }
-      .box { width: 14px; height: 14px; flex-basis: 14px; }
+      html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #fff !important;
+        font-size: 9.1pt;
+        line-height: 1.13;
+        /* Do NOT set a fixed width here — let the browser use the
+           printable-area width that @page margins define. */
+      }
+      .toolbar  { display: none !important; }
+      .orb      { display: none !important; }
+      /* Sheet fills 100% of the printable column — no fixed px/mm width
+         so nothing can overflow or get clipped on one side. */
+      .sheet {
+        width: 100% !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        background: #fff !important;
+      }
+      .section        { margin-bottom: 2px; }
+      .section-title  { padding-top: 2px; padding-bottom: 2px; }
+      .question       { padding-top: 2.5px; padding-bottom: 2.5px; gap: 2px; }
+      .meta-grid      { grid-template-columns: 1.2fr 1fr 1fr; }
+      .options        { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px 7px; }
+      .option         { font-size: 9pt; line-height: 1.16; word-break: break-word; }
+      .box            { width: 14px; height: 14px; flex-basis: 14px; }
     }
   </style>
 </head>
 <body>
   <div class="toolbar">
-    <button type="button" onclick="window.print()">Download / Print PDF</button>
+    <button type="button" onclick="downloadPDF()">🖨️ Save as PDF</button>
     <a href="index.html">Back to Enumerator</a>
     <a href="admin.html">Back to Admin</a>
   </div>
@@ -356,7 +380,16 @@
       }
     }
 
-    loadForm();
+    function downloadPDF() {
+      window.print();
+    }
+
+    loadForm().then(() => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('download') === '1') {
+        downloadPDF();
+      }
+    });
   </script>
 </body>
 </html>
